@@ -1,10 +1,13 @@
 # pyedautils
-Python Energy Data Analysis Utilities
+**Python Energy Data Analysis Utilities**
 
-The Python-package ‘pyedautils’ provides frequently used utility functions for
-the analysis and visualization of comfort and energy data in python. These
-functions reduce the complexity of the analysis task and allow a fast
-visualization of the data.
+| --- | --- |
+| Testing | [![CI - Test](https://github.com/retomarek/pyedautils/actions/workflows/python-unittest.yml/badge.svg)](https://github.com/retomarek/pyedautils/actions/workflows/python-unittests.yml) [![Coverage](https://codecov.io/github/retomarek/pyedautils/coverage.svg?branch=main)](https://codecov.io/gh/retomarek/pyedautils) |
+| Package | [![PyPI Latest Release](https://img.shields.io/pypi/v/pyedautils.svg)](https://pypi.org/project/pyedautils) [![PyPI Downloads](https://img.shields.io/pypi/dd/pyedautils.svg?label=PyPI%20downloads)](https://pypi.org/project/pyedautils/) |
+
+## What is it?
+
+**pyedautils** is a python package that provides frequently used utility functions for the analysis and visualization of comfort and energy time series data. These functions reduce the complexity of the analysis and visualization of the data.
 
 ## Installation
 
@@ -36,26 +39,6 @@ get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"
 
 #Out[1]: 'Frühling'
 ```
-
-## Publishing notes for author
-``` python
-# Install package locally
-python setup.py install
-
-# Execute tests
-cd tests
-python -m unittest discover
-cd ..
-
-# push to testpypi
-python setup.py sdist bdist_wheel
-python -m twine upload -r testpypi dist/*
-
-# finally push to pypi
-python setup.py sdist bdist_wheel
-python -m twine upload dist/*
-```
-
 
 <hr>
 
