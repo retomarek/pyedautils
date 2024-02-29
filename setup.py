@@ -1,12 +1,10 @@
-from setuptools import setup, find_packages
+import setuptools
+import some_build_toolkit
 
-setup(
-    name='pyedautils',
-    use_scm_version=True,
-    author='Reto Marek',
-    description='Python Energy Data Analysis Utilities',
-    url='https://github.com/retomarek/pyedautils',
-    license='BSD 2-clause',
-    packages=find_packages(exclude="tests"),  # Automatically find packages in the current directory
-    install_requires=[],  # List of dependencies
+def get_version():
+    version = some_build_toolkit.compute_version()
+    return version
+
+setuptools.setup(
+    version=get_version(),
 )
