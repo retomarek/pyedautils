@@ -2,12 +2,10 @@
 
 import unittest
 import pandas as pd
+from pandas.testing import assert_series_equal
 from datetime import datetime
 
-import sys
-sys.path.append("../")
-
-from pyedautils.season import season
+from pyedautils.season import get_season
 
 class TestSeasonFunction(unittest.TestCase):
     def test_season_northern_hemisphere_astronomical(self):
@@ -24,7 +22,7 @@ class TestSeasonFunction(unittest.TestCase):
         ]
         for date, expected_season in test_cases:
             with self.subTest(date):
-                self.assertEqual(season(date=date), expected_season)
+                self.assertEqual(get_season(date=date), expected_season)
 
     def test_season_northern_hemisphere_meteorological(self):
         # Test dates for the northern hemisphere with meteorological datechanges
@@ -40,7 +38,7 @@ class TestSeasonFunction(unittest.TestCase):
         ]
         for date, expected_season in test_cases:
             with self.subTest(date):
-                self.assertEqual(season(date=date, tracking_type="meteorological"), expected_season)
+                self.assertEqual(get_season(date=date, tracking_type="meteorological"), expected_season)
                 
     def test_season_southern_hemisphere_astronomical(self):
         # Test dates for the southern hemisphere
@@ -52,7 +50,7 @@ class TestSeasonFunction(unittest.TestCase):
         ]
         for date, expected_season in test_cases:
             with self.subTest(date):
-                self.assertEqual(season(date=date, hemisphere="south"), expected_season)
+                self.assertEqual(get_season(date=date, hemisphere="south"), expected_season)
 
     def test_custom_labels(self):
         # Test with custom labels
@@ -69,15 +67,13 @@ class TestSeasonFunction(unittest.TestCase):
         ]
         for date, expected_season in test_cases:
             with self.subTest(date):
-                self.assertEqual(season(date=date, labels=custom_labels), expected_season)
+                self.assertEqual(get_season(date=date, labels=custom_labels), expected_season)
        
     def test_pandas_series(self):
         # Test passing a pandas Series object
-        dates = pd.Series([datetime(2024, 3, 31, 3, 5), datetime(2024, 6, 22), datetime(2024, 9, 24), datetime(2024, 12, 24)])
-        expected_seasons = ["Spring", "Summer", "Fall", "Winter"]
-        for date, expected_season in zip(dates, expected_seasons):
-            with self.subTest(date):
-                self.assertEqual(season(date=date), expected_season)
+        pd_datetime_series = pd.Series([datetime(2024, 3, 31, 3, 5), datetime(2024, 6, 22), datetime(2024, 9, 24), datetime(2024, 12, 24)])
+        expected_seasons = pd.Series(["Spring", "Summer", "Fall", "Winter"])
+        assert_series_equal(get_season(date=pd_datetime_series), expected_seasons)
                 
 if __name__ == '__main__':
     unittest.main()
