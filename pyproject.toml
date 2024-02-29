@@ -1,10 +1,13 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = [
+    "setuptools",
+    "some-build-toolkit",
+]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyedautils"
-version = "0.0.1"
+dynamic = ["version"]
 authors = [
   { name="Reto Marek"},
 ]
