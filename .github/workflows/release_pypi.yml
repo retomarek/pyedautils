@@ -9,7 +9,7 @@ name: Upload Python Package
 
 on:
   release:
-    types: [released]
+    types: [prereleased]
 
 permissions:
   contents: read
