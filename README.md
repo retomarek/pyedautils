@@ -14,7 +14,6 @@ You can install the package from [GitHub](https://github.com/) with:
 pip install git+https://github.com/retomarek/pyedautils.git
 ```
 
-The package is not available on CRAN.
 <!---
 ## Functions
 
@@ -134,5 +133,5 @@ Hint: varoius settings can get changed via function arguments.
 -->
 <hr>
 
-**Disclaimer**<br> The authors decline any liability or responsibility
+**Disclaimer**<br> The author decline any liability or responsibility
 in connection with the published documentation
