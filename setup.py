@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='pyedautils',
-    version='0.1.0',
+    use_scm_version=True,
     author='Reto Marek',
     description='Python Energy Data Analysis Utilities',
     url='https://github.com/retomarek/pyedautils',
