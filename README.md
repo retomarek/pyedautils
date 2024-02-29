@@ -11,127 +11,52 @@ visualization of the data.
 You can install the package from [GitHub](https://github.com/) with:
 
 ``` python
-pip install git+https://github.com/retomarek/pyedautils.git
+pip install pyedautils
 ```
 
-<!---
 ## Functions
 
-### getSeason()
+### get_season()
 
 Get the season name out of a date for filter and grouping purposes.
 
-``` r
-library(redutils)
-x <- as.Date("2019-04-01")
-getSeason(x)
-#> [1] "Spring"
+``` python
+from pyedautils.season import get_season
+from datetime import datetime
+
+get_season(datetime(2024,5,5))
+
+#Out[0]: 'Spring'
 ```
 
-Default language is English. You can change that by passing the argument
-`seasonlab`:
+Default language of the returned strings is English. You can change that by passing the argument `labels`:
 
-``` r
-library(redutils)
-x <- as.Date("2019-04-01")
-getSeason(x, seasonlab = c("Winter","Frühling","Sommer","Herbst"))
-#> [1] "Frühling"
+``` python
+get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"])
+
+#Out[1]: 'Frühling'
 ```
 
-### getTypEleConsHousehold()
+## Publishing notes for author
+``` python
+# Install package locally
+python setup.py install
 
-Get a typical electricity consumption of a Swiss household in kWh/year.
-This is useful to compare a real dataset with a typical consumption
-value.
+# Execute tests
+cd tests
+python -m unittest discover
+cd ..
 
-``` r
-# single family house
-library(redutils)
-getTypEleConsHousehold(occupants=3,
-                       rooms=5.5,
-                       bldgType="single",
-                       waterHeater="heatPump",
-                       eleCommon="included")
-#> [1] 5370
+# push to testpypi
+python setup.py sdist bdist_wheel
+python -m twine upload -r testpypi dist/*
+
+# finally push to pypi
+python setup.py sdist bdist_wheel
+python -m twine upload dist/*
 ```
 
-``` r
-# flat in a multi family house
-library(redutils)
-getTypEleConsHousehold(occupants=3,
-                       bldgType="multi",
-                       freezer="none")
-#> [1] 2900
-```
 
-Hint: varoius settings can get changed via function arguments.
-
-## Plots
-
-### plotEnergyConsBeforeAfter()
-
-Plot a Graph with Energy Consumption per Month before/after an
-Optimization.
-
-``` r
-library(redutils)
-data <- readRDS(system.file("sampleData/flatHeatingEnergy.rds", package = "redutils"))
-plotSeasonalXYBeforeAfter(data, dateOptimization = "2017-09-01")
-```
-
-<img src="man/figures/README-plotSeasonalXYBeforeAfter-1.png" width="100%" />
-
-### plotEnergyConsDailyProfileOverview()
-
-Plot a Graph with Daily Energy Consumption Profiles by Weekday and
-Season.
-
-``` r
-library(redutils)
-data <- readRDS(system.file("sampleData/eboBookEleMeter.rds", package = "redutils"))
-plotDailyProfilesOverview(data, locTimeZone = "Europe/Zurich")
-```
-
-<img src="man/figures/README-plotDailyProfilesOverview-1.png" width="100%" />
-
-### plotDailyProfilesDecomposed()
-
-Plot a Graph with Decomposed Daily Energy Consumption Profiles by
-Weekday. Decomposed means that the trend component (average of 2 week
-per default) is removed and only the seasonal component is showed. This
-allows an easier comparison.
-
-``` r
-library(redutils)
-data <- readRDS(system.file("sampleData/eboBookEleMeter.rds", package = "redutils"))
-plotDailyProfilesDecomposed(data, locTimeZone = "Europe/Zurich")
-```
-
-<img src="man/figures/README-plotDailyProfilesdecomposition-1.png" width="100%" />
-
-### plotHeatmapMedianWeeks()
-
-Plot Heatmap of Median Energy Consumption by Hour, Weekdays and Seasons
-of Year.
-
-``` r
-library(redutils)
-data <- readRDS(system.file("sampleData/eboBookEleMeter.rds", package = "redutils"))
-plotHeatmapMedianWeeks(data, locTimeZone = "Europe/Zurich")
-```
-
-<img src="man/figures/README-plotHeatmapMedianWeeks-1.png" width="100%" />
-
-### plotMollierHxDiagram()
-
-Plot a D3 Mollier hx Diagram with scatter plot and comfort zone.
-
-<img src="inst/mollierHxDiagram/example.png" class="illustration" width=600/>
-
-Hint: varoius settings can get changed via function arguments.
-
--->
 <hr>
 
-**Disclaimer**<br> The author decline any liability or responsibility
-in connection with the published documentation
+**Disclaimer**<br> The author declines any liability or responsibility in connection with the published code and documentation
