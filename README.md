@@ -8,7 +8,7 @@ visualization of the data.
 
 ## Installation
 
-You can install the package from [GitHub](https://github.com/) with:
+You can install the package from [PyPi.org](https://pypi.org/) with:
 
 ``` python
 pip install pyedautils
