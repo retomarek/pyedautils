@@ -3,6 +3,7 @@
 from datetime import datetime
 import ephem
 from typing import List
+import pandas as pd
 
 TYPE_ASTRONOMICAL = "astronomical"
 
@@ -21,19 +22,22 @@ HEMISPHERE_SEASON_SWAP = {
     STATE_WINTER: STATE_SUMMER
 }
 
-def season(date: datetime, hemisphere: str = "north", labels: List[str] = ["Spring", "Summer", "Fall", "Winter"], tracking_type: str = "astronomical") -> str:
+def get_season(date, hemisphere: str = "north", labels: List[str] = ["Spring", "Summer", "Fall", "Winter"], tracking_type: str = "astronomical") -> str:
     """
     Return the season of the given date depending on the latitude and location.
 
     Args:
-        date: datetime object
+        date: datetime object or pandas Series with datetime objects
         hemisphere: "north" or "south", default is "north"
         labels: array of season names, default is ["Spring", "Summer", "Fall", "Winter"]
         tracking_type: Type of season definition. Options are "meteorological" or "astronomical". Default is "astronomical"
         
     Returns:
-        A string with season name
+        A string with season name or a pandas series with strings, depending on the input
     """
+    if isinstance(date, pd.Series):
+        return date.apply(lambda x: get_season(x, hemisphere, labels, tracking_type))
+    
     if tracking_type == TYPE_ASTRONOMICAL:
         spring_start = ephem.next_equinox(str(date.year)).datetime()
         summer_start = ephem.next_solstice(str(date.year)).datetime()
