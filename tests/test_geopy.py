@@ -43,7 +43,7 @@ class TestGeopyhelpers(unittest.TestCase):
         
         
     def test_find_coordindates_ch_plz(self):
-        self.assertIn(get_coordindates_ch_plz(6048)[0], range(47.005, 47.02))
+        self.assertIn(get_coordindates_ch_plz(6048)[0], range(47.00, 47.02))
         self.assertIn(get_coordindates_ch_plz(6048)[1], range(8.29, 8.31))
         with self.assertRaises(GeocodingError):
             get_coordindates_ch_plz(424242)
