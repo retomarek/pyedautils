@@ -1,6 +1,8 @@
 from geopy.geocoders import Nominatim
+import pgeocode
 import requests
 import pandas as pd
+import numpy as np
 import time
 from typing import List, Union
 
@@ -48,7 +50,7 @@ def get_altitude_lv95(coord_list_lv95: List[float]) -> float:
         altitude = float(r.get("height", 0))
         return altitude
     except Exception as e:
-        raise GeocodingError(f"Failed to get altitude for LV95 coordinates: {e}") from e
+        raise GeocodingError(f"Failed to get altitude for LV95 coordinates, Error: {e}") from e
 
 def get_altitude_lat_long(lat: float, long: float) -> float:
     """
@@ -106,4 +108,25 @@ def get_lat_long(address: str) -> Union[List[float], None]:
 
         return [n.latitude, n.longitude]
     except Exception as e:
-        raise GeocodingError(f"Failed to geocode address: {e}") from e
+        raise GeocodingError(f"Failed to geocode address, Error: {e}") from e
+
+def get_coordindates_ch_plz(plz: int):
+    """
+    Returns latitude and longitude for a Swiss postal code.
+
+    Args:
+        plz (int): Postal Code (Postleitzahl)
+
+    Returns:
+        tuple (lat: float, lon: float)
+    """
+    try:
+        nomi = pgeocode.Nominatim('ch') 
+        data=nomi.query_postal_code(plz)
+        coordinates = data.latitude.astype(float), data.longitude.astype(float)
+        if(str(coordinates[0]) == "nan"):
+            raise GeocodingError(f"Failed to get lat/long from plz {plz}")
+    except Exception:
+        raise GeocodingError(f"Failed to get lat/long for plz {plz}")
+     
+    return coordinates
