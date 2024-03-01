@@ -64,6 +64,17 @@ get_altitude_lv95([2665960.531, 1207281.985])
 # Out: 442.6
 ```
 
+#### get_coordindates_ch_plz()
+Returns latitude and longitude for a Swiss postal code.
+
+``` python
+from pyedautils.geopy import get_coordindates_ch_plz
+
+get_coordindates_ch_plz(6048)
+
+Out: (47.0108, 8.3039)
+```
+
 ### season.py
 
 #### get_season()
