@@ -88,6 +88,25 @@ get_distance_between_two_points(coord1, coord2)
 
 #Out: 50.301
 ```
+
+### meteo_swiss.py
+
+#### find_nearest_station()
+
+Returns station id of closest meteo swiss station to a coordinate.
+
+``` python
+from pyedautils.meteo_swiss import find_nearest_station
+from pyedautils.geopy import get_coordindates_ch_plz, get_altitude_lat_long
+
+coord = get_coordindates_ch_plz(6197)
+altitude = get_altitude_lat_long(coord[0], coord[1])
+
+find_nearest_station(coord[0], coord[1], altitude, sensor="temp")
+
+Out: "FLU"
+```
+
 ### season.py
 
 #### get_season()
