@@ -43,7 +43,7 @@ def get_altitude_lv95(coord_list_lv95: List[float]) -> float:
         float: Altitude in meters above sea level.
     """
     query = f'https://api3.geo.admin.ch/rest/services/height?easting={coord_list_lv95[0]}&northing={coord_list_lv95[1]}'
-    try:
+    try:       
         r = requests.get(query).json()
         altitude = float(r.get("height", 0))
         return altitude
@@ -62,12 +62,23 @@ def get_altitude_lat_long(lat: float, long: float) -> float:
     Returns:
         float: Altitude in meters above sea level.
     """
+    switzerland_lat_min = 45.8177
+    switzerland_lat_max = 47.8084
+    switzerland_long_min = 5.9561
+    switzerland_long_max = 10.4921
+    
+    if((switzerland_lat_min <= lat <= switzerland_lat_max) and (switzerland_long_min <= long <= switzerland_long_max)):
+        raise ValueError("Coordinates not in range for Swiss coordinate system LV95")
+    
     latitude = str(lat)
     longitude = str(long)
     query = f'https://api.opentopodata.org/v1/eudem25m?locations={latitude},{longitude}'
     try:
         r = requests.get(query).json()
-        altitude = float(pd.json_normalize(r, 'results')['elevation'].values[0])
+        if(pd.json_normalize(r, 'results')['elevation'][0] == None):
+            altitude = 0
+        else:
+            altitude = float(pd.json_normalize(r, 'results')['elevation'].values[0])
         time.sleep(1)  # API rate limiting
         return round(altitude,1)
     except Exception as e:
@@ -91,8 +102,7 @@ def get_lat_long(address: str) -> Union[List[float], None]:
                 break
             time.sleep(1)  # API rate limiting
         else:
-            print("Failed to geocode address after 3 attempts")
-            return None
+            raise GeocodingError("Failed to geocode address after 3 attempts")
 
         return [n.latitude, n.longitude]
     except Exception as e:
