@@ -9,7 +9,8 @@ class TestGeopyhelpers(unittest.TestCase):
     def test_get_altitude_lat_long(self):
         """Test get_altitude() with different lat/long pairs"""
         self.assertIn(round(get_altitude_lat_long(47.01450, 8.30620),0), range(438,445))
-        self.assertIn(round(get_altitude_lat_long(57.01450, 8.30620),0), range(-1,1))
+        with self.assertRaises(ValueError):
+            get_altitude_lat_long(57.01450, 8.30620)
         with self.assertRaises(ValueError):
             get_altitude_lat_long(100, 10)
         with self.assertRaises(ValueError):
