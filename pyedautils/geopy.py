@@ -86,7 +86,7 @@ def get_altitude_lat_long(lat: float, long: float) -> float:
     except Exception as e:
         raise GeocodingError(f"Failed to get altitude for WGS84 coordinates: {e}") from e
 
-def get_lat_long(address: str) -> Union[List[float], None]:
+def get_lat_long_address(address: str) -> Union[List[float], None]:
     """
     Returns latitude and longitude coordinates for the given address.
 

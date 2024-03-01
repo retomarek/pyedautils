@@ -1,7 +1,7 @@
 # # -*- coding: utf-8 -*-
 
 import unittest
-from pyedautils.geopy import get_altitude_lat_long, get_lat_long, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz
+from pyedautils.geopy import get_altitude_lat_long, get_lat_long_address, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz
 
 class TestGeopyhelpers(unittest.TestCase):
     """Tests for "geopyhelpers.py"."""
@@ -20,12 +20,12 @@ class TestGeopyhelpers(unittest.TestCase):
         with self.assertRaises(ValueError):
             get_altitude_lat_long(10, 200)
 
-    def test_get_lat_long(self):
+    def test_get_lat_long_address(self):
         """Test get_lat_long() with different addresses"""
-        self.assertEqual(round(get_lat_long("Technikumstrasse 21, 6048 Horw")[0], 1), 47.0)
-        self.assertEqual(round(get_lat_long("Technikumstrasse 21, 6048 Horw")[1], 1), 8.3)
+        self.assertEqual(round(get_lat_long_address("Technikumstrasse 21, 6048 Horw")[0], 1), 47.0)
+        self.assertEqual(round(get_lat_long_address("Technikumstrasse 21, 6048 Horw")[1], 1), 8.3)
         with self.assertRaises(GeocodingError):
-            get_lat_long("Highway to hell, Horw, Switzerland")        
+            get_lat_long_address("Highway to hell, Horw, Switzerland")        
         
     def test_convert_wsg84_to_lv95(self):
         """Test convert_wsg84_to_lv95() with different coodrinates"""
