@@ -2,9 +2,9 @@ from geopy.geocoders import Nominatim
 import pgeocode
 import requests
 import pandas as pd
-import numpy as np
 import time
-from typing import List, Union
+from typing import List, Union, Tuple
+import math
 
 class GeocodingError(Exception):
     pass
@@ -110,7 +110,7 @@ def get_lat_long_address(address: str) -> Union[List[float], None]:
     except Exception as e:
         raise GeocodingError(f"Failed to geocode address, Error: {e}") from e
 
-def get_coordindates_ch_plz(plz: int):
+def get_coordindates_ch_plz(plz: int) -> Tuple[float, float]:
     """
     Returns latitude and longitude for a Swiss postal code.
 
@@ -130,3 +130,33 @@ def get_coordindates_ch_plz(plz: int):
         raise GeocodingError(f"Failed to get lat/long for plz {plz}")
      
     return coordinates
+
+def get_distance_between_two_points(coord1, coord2):
+    """
+    Calculate the distance between two points on the Earth's surface given their latitude and longitude coordinates.
+    
+    Args:
+        coord1 (tuple): Latitude and longitude of the first point in degrees, as a tuple (lat1, lon1).
+        coord2 (tuple): Latitude and longitude of the second point in degrees, as a tuple (lat2, lon2).
+        
+    Returns:
+        float: Distance between the two points in kilometers.
+    
+    """
+    # Radius of Earth in km
+    R = 6373.0
+    
+    # Convert latitude and longitude from degrees to radians
+    lat1, lon1 = math.radians(coord1[0]), math.radians(coord1[1])
+    lat2, lon2 = math.radians(coord2[0]), math.radians(coord2[1])
+    
+    # Calculate differences in longitude and latitude
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    
+    # Apply Haversine formula to calculate distance
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance = R * c
+    
+    return distance
