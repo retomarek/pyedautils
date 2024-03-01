@@ -70,7 +70,7 @@ def get_altitude_lat_long(lat: float, long: float) -> float:
     switzerland_long_max = 10.7
     
     if(not((switzerland_lat_min <= lat <= switzerland_lat_max) and (switzerland_long_min <= long <= switzerland_long_max))):
-        raise ValueError("Coordinates not in range for Swiss coordinate system LV95")
+        raise ValueError("Coordinates not in range for Swiss coordinate system")
     
     latitude = str(lat)
     longitude = str(long)
