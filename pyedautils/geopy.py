@@ -62,12 +62,12 @@ def get_altitude_lat_long(lat: float, long: float) -> float:
     Returns:
         float: Altitude in meters above sea level.
     """
-    switzerland_lat_min = 45.8177
-    switzerland_lat_max = 47.8084
-    switzerland_long_min = 5.9561
-    switzerland_long_max = 10.4921
+    switzerland_lat_min = 45.67
+    switzerland_lat_max = 47.92
+    switzerland_long_min = 5.7
+    switzerland_long_max = 10.7
     
-    if((switzerland_lat_min <= lat <= switzerland_lat_max) and (switzerland_long_min <= long <= switzerland_long_max)):
+    if(not((switzerland_lat_min <= lat <= switzerland_lat_max) and (switzerland_long_min <= long <= switzerland_long_max))):
         raise ValueError("Coordinates not in range for Swiss coordinate system LV95")
     
     latitude = str(lat)
