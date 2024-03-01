@@ -6,11 +6,11 @@
 
 ## What is it?
 
-**pyedautils** is a python package that provides frequently used utility functions for the analysis and visualization of comfort and energy time series data. These functions reduce the complexity of the analysis and visualization of the data.
+**pyedautils** is a Python package tailored for analyzing and visualizing comfort and energy time series data. It offers a comprehensive suite of utility functions, simplifying the complexities inherent in data analysis and visualization.
 
 ## Installation
 
-You can install the package from [PyPi.org](https://pypi.org/) with:
+The package is available on [PyPi.org](https://pypi.org/) and can be installed with:
 
 ``` python
 pip install pyedautils
