@@ -1,7 +1,7 @@
 # # -*- coding: utf-8 -*-
 
 import unittest
-from pyedautils.geopy import get_altitude_lat_long, get_lat_long_address, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz
+from pyedautils.geopy import get_altitude_lat_long, get_lat_long_address, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz, get_distance_between_two_points
 
 class TestGeopyhelpers(unittest.TestCase):
     """Tests for "geopyhelpers.py"."""
@@ -43,10 +43,10 @@ class TestGeopyhelpers(unittest.TestCase):
         
         
     def test_find_coordindates_ch_plz(self):
-        self.assertIn(get_coordindates_ch_plz(6048)[0], range(47.00, 47.02))
-        self.assertIn(get_coordindates_ch_plz(6048)[1], range(8.29, 8.31))
+        self.assertAlmostEqual(get_coordindates_ch_plz(6048)[0], 47.01, delta=0.1)
+        self.assertAlmostEqual(get_coordindates_ch_plz(6048)[1], 8.3, delta=0.1)
         with self.assertRaises(GeocodingError):
             get_coordindates_ch_plz(424242)
-        
+                        
 if __name__ == '__main__':
     unittest.main()
