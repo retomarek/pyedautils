@@ -133,7 +133,7 @@ def get_coordindates_ch_plz(plz: int) -> Tuple[float, float]:
 
 def get_distance_between_two_points(coord1, coord2):
     """
-    Calculate the distance between two points on the Earth's surface given their latitude and longitude coordinates.
+    Calculates the distance between two points on the Earth's surface given their latitude and longitude coordinates.
     
     Args:
         coord1 (tuple): Latitude and longitude of the first point in degrees, as a tuple (lat1, lon1).
@@ -159,4 +159,4 @@ def get_distance_between_two_points(coord1, coord2):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     distance = R * c
     
-    return distance
+    return round(distance, 3)

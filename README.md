@@ -75,6 +75,19 @@ get_coordindates_ch_plz(6048)
 Out: (47.0108, 8.3039)
 ```
 
+#### get_distance_between_two_points()
+Calculates the distance in km between two points on the Earth's surface given their latitude and longitude coordinates.
+
+``` python
+from pyedautils.geopy import get_coordindates_ch_plz, get_distance_between_two_points
+
+coord1 = get_coordindates_ch_plz(6048) # Horw
+coord2 = get_coordindates_ch_plz(3800) # Interlaken
+
+get_distance_between_two_points(coord1, coord2)
+
+#Out: 50.301
+```
 ### season.py
 
 #### get_season()

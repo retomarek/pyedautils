@@ -47,6 +47,12 @@ class TestGeopyhelpers(unittest.TestCase):
         self.assertAlmostEqual(get_coordindates_ch_plz(6048)[1], 8.3, delta=0.1)
         with self.assertRaises(GeocodingError):
             get_coordindates_ch_plz(424242)
-                        
+            
+    def test_get_distance_between_two_points(self):
+        self.assertEqual(round(get_distance_between_two_points(get_coordindates_ch_plz(6048), get_coordindates_ch_plz(3800)), 0), 50)
+        self.assertAlmostEqual(get_distance_between_two_points(get_coordindates_ch_plz(6048), get_lat_long_address("20 W 34th, New York")), 6323.833, delta = 10)
+        with self.assertRaises(GeocodingError):
+            get_distance_between_two_points(get_coordindates_ch_plz(5555555), get_coordindates_ch_plz(3800))
+            
 if __name__ == '__main__':
     unittest.main()
