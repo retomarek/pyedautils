@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import gzip
 import pickle
-from data_io import save_data, load_data
+from pyedautils.data_io import save_data, load_data
 
 class TestDataIO(unittest.TestCase):
     def setUp(self):
