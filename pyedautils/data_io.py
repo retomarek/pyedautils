@@ -70,7 +70,7 @@ def load_data(file_path):
     try:
         print("Loading data from file:", file_path)
         if file_path.endswith(".csv"):
-            data = pd.read_csv(file_path)
+            data = pd.read_csv(file_path, sep=None)
         elif file_path.endswith(".pklz"):
             with gzip.open(file_path, 'rb') as f:
                 data = pickle.load(f)
