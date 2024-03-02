@@ -98,7 +98,7 @@ from pyedautils.geopy import get_coordindates_ch_plz
 
 get_coordindates_ch_plz(6048)
 
-Out: (47.0108, 8.3039)
+# Out: (47.0108, 8.3039)
 ```
 
 #### get_distance_between_two_points()
@@ -112,7 +112,7 @@ coord2 = get_coordindates_ch_plz(3800) # Interlaken
 
 get_distance_between_two_points(coord1, coord2)
 
-#Out: 50.301
+# Out: 50.301
 ```
 
 ### meteo_swiss.py
@@ -130,7 +130,7 @@ altitude = get_altitude_lat_long(coord[0], coord[1])
 
 find_nearest_station(coord[0], coord[1], altitude, sensor="temp")
 
-Out: "FLU"
+# Out: "FLU"
 ```
 
 ### season.py
@@ -145,7 +145,7 @@ from datetime import datetime
 
 get_season(datetime(2024,5,5))
 
-#Out: 'Spring'
+# Out: 'Spring'
 ```
 
 Default language of the returned strings is English. You can change that by passing the argument `labels`:
@@ -153,7 +153,7 @@ Default language of the returned strings is English. You can change that by pass
 ``` python
 get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"])
 
-#Out: 'Frühling'
+# Out: 'Frühling'
 ```
 
 <hr>
