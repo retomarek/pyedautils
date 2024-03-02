@@ -18,6 +18,32 @@ pip install pyedautils
 
 ## Functions
 
+### data_io.py
+File handling utilities for loading and saving data.
+
+#### save_data()
+Saves data to a file in various formats (CSV, Pickle, JSON) based on the given file extension of pile_path.
+
+``` python
+from pyedautils.data_io import save_data
+
+data = {"key1": "value1", "key2": "value2"}
+file_path = "./test.json"
+save_data(data, file_path)
+
+```
+
+#### load_data()
+Loads data from a file in various formats (CSV, Pickle, JSON) based on the given file extension of file_path.
+
+``` python
+from pyedautils.data_io import load_data
+
+file_path = "./test.json"
+data = load_data(data, file_path)
+
+```
+
 ### geopy.py
 Helper funtions to find the coordinates from an address, convert lat/long values to swiss WGS84 coordinates and get the altitude from coordinates.
 
