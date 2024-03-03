@@ -27,12 +27,15 @@ This function creates an overview of typical daily profiles per weekday and seas
 from pyedautils.data_io import load_data
 from pyedautils.plots import load_data
 
+# data preprocessing
 file_path = "pyedautils/data/ele_meter.csv"
 df = load_data(file_path=)
 df['value'] = df['value'].diff()
 df = df.dropna()
 
-plot_daily_profiles_overview(df)
+# create and show plot
+fig = plot_daily_profiles_overview(df)
+fig.show(renderer="browser")
 ```
 
 ## Functions
