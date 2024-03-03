@@ -44,9 +44,6 @@ pip install pyedautils
 
 ---
 
-**Disclaimer**<br> The author declines any liability or responsibility in connection with the published code and documentation
-
----
 <a name="plots"></a>
 ## Plots
 <a name="plot_daily_profiles_overview"></a>
@@ -75,6 +72,8 @@ fig.show(renderer="browser")
 <a name="functions"></a>
 ## Functions
 
+---
+
 <a name="data_io"></a>
 ### data_io.py 
 File handling utilities for loading and saving data.
@@ -102,6 +101,8 @@ file_path = "pyedautils/data/ele_meter.csv"
 df = load_data(file_path)
 
 ```
+
+---
 
 <a name="geopy"></a>
 ### geopy.py 
@@ -181,6 +182,8 @@ get_distance_between_two_points(coord1, coord2)
 # Out: 50.301
 ```
 
+---
+
 <a name="meteo_swiss"></a>
 ### meteo_swiss.py 
 
@@ -200,6 +203,8 @@ find_nearest_station(coord[0], coord[1], altitude, sensor="temp")
 
 # Out: "FLU"
 ```
+
+---
 
 <a name="season"></a>
 ### season.py 
@@ -226,6 +231,8 @@ get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"
 # Out: 'Frühling'
 ```
 
+---
+
 ## Build info
 ``` python
 # open anaconda console and navigate to pyedautils
@@ -233,3 +240,8 @@ py -m build
 pip install 
 ```
 
+---
+
+**Disclaimer**<br> The author declines any liability or responsibility in connection with the published code and documentation
+
+---
