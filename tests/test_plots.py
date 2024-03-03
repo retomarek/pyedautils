@@ -8,9 +8,11 @@ class TestPlots(unittest.TestCase):
     def test_plot_daily_profiles_overview(self):
         # Get the path to the current module
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        
+        print("current_dir path:", current_dir)  # Debug print
         # Construct the path to the file relative to the package folder
-        file_path = "../pyedautils/data/ele_meter.csv"
+        #file_path = "../pyedautils/data/ele_meter.csv"
+        file_path = os.path.join(current_dir,'data', 'ele_meter.csv')
+        print("File path:", file_path)  # Debug print
 
         # Call the function under test
         df = load_data(file_path)
