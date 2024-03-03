@@ -25,11 +25,11 @@ This function creates an overview of typical daily profiles per weekday and seas
 
 ``` python
 from pyedautils.data_io import load_data
-from pyedautils.plots import load_data
+from pyedautils.plots import plot_daily_profiles_overview
 
 # data preprocessing
 file_path = "pyedautils/data/ele_meter.csv"
-df = load_data(file_path=)
+df = load_data(file_path)
 df['value'] = df['value'].diff()
 df = df.dropna()
 
@@ -175,6 +175,13 @@ Default language of the returned strings is English. You can change that by pass
 get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"])
 
 # Out: 'Frühling'
+```
+
+## Build info
+``` python
+# open anaconda console and navigate to pyedautils
+py -m build
+pip install 
 ```
 
 <hr>
