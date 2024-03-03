@@ -21,9 +21,7 @@ pip install pyedautils
 ### plot_daily_profiles_overview()
 This function creates an overview of typical daily profiles per weekday and season of year with a confidence band where most of the values lie.
 
-```html
-<iframe src="docs/images/plot_daily_profiles_overview.html" height="600" width="800"></iframe>
-```
+![plot_daily_profiles_overview](/docs/images/plot_daily_profiles_overview.png)
 
 ``` python
 from pyedautils.data_io import load_data
