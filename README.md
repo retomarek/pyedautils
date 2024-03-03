@@ -36,7 +36,7 @@ fig = plot_daily_profiles_overview(df)
 fig.show(renderer="browser")
 ```
 
-[![plot_daily_profiles_overview](https://raw.githubusercontent.com/retomarek/pyedautils/main/docs/images/plot_daily_profiles_overview.png)](https://raw.githubusercontent.com/retomarek/pyedautils/main/docs/images/plot_daily_profiles_overview.html)
+![plot_daily_profiles_overview](https://raw.githubusercontent.com/retomarek/pyedautils/main/docs/images/plot_daily_profiles_overview.png)
 
 ## Functions
 
