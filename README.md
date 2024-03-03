@@ -15,10 +15,38 @@ The package is available on [PyPi.org](https://pypi.org/) and can be installed w
 ``` python
 pip install pyedautils
 ```
+---
 
-## Plots
+## Table of contents
 
-### plot_daily_profiles_overview()
+**[Plots](#plots**
+- [plot_daily_profiles_overview()](#plot_daily_profiles_overview)
+
+**[Functions](#functions)**
+- **[data_io.py](#data-io)**
+ - [save_data()](#save_data)
+ - [load_data()](#load_data)
+- **[geopy.py](#geopy)**
+ - [get_lat_long()](#get_lat_long)
+ - [get_altitude_lat_long()](#get_altitude_lat_long)
+ - [convert_wsg84_to_lv95()](#convert_wsg84_to_lv95)
+ - [get_altitude_lv95()](#get_altitude_lv95)
+ - [get_coordindates_ch_plz()](#get_coordindates_ch_plz)
+ - [get_distance_between_two_points()](#get_distance_between_two_points)
+- **[meteo_swiss.py](#meteo_swiss)**
+ - [find_nearest_station()](#find_nearest_station)
+- **[season.py](#season)**
+ - [get_season()](#get_season)
+
+---
+
+**Disclaimer**<br> The author declines any liability or responsibility in connection with the published code and documentation
+
+---
+ 
+## Plots <a name="plots"></a>
+
+### plot_daily_profiles_overview() <a name="plot_daily_profiles_overview"></a>
 This function creates an overview of typical daily profiles per weekday and season of year with a confidence band where 90% of the values lie (q5 to q95).
 
 ``` python
@@ -38,12 +66,14 @@ fig.show(renderer="browser")
 
 ![plot_daily_profiles_overview](https://raw.githubusercontent.com/retomarek/pyedautils/main/docs/images/plot_daily_profiles_overview.png)
 
-## Functions
+---
 
-### data_io.py
+## Functions <a name="functions"></a>
+
+### data_io.py <a name="data_io"></a>
 File handling utilities for loading and saving data.
 
-#### save_data()
+#### save_data() <a name="save_data"></a>
 Saves data to a file in various formats (CSV, Pickle, JSON) based on the given file extension of pile_path.
 
 ``` python
@@ -54,7 +84,7 @@ save_data(df, file_path)
 
 ```
 
-#### load_data()
+#### load_data() <a name="load_data"></a>
 Loads data from a file in various formats (CSV, Pickle, JSON) based on the given file extension of file_path.
 
 ``` python
@@ -65,10 +95,10 @@ df = load_data(file_path)
 
 ```
 
-### geopy.py
+### geopy.py <a name="geopy"></a>
 Helper funtions to find the coordinates from an address, convert lat/long values to swiss WGS84 coordinates and get the altitude from coordinates.
 
-#### get_lat_long()
+#### get_lat_long() <a name="get_lat_long"></a>
 Returns latitude and longitude coordinates for the given address.
 
 ``` python
@@ -79,7 +109,7 @@ get_lat_long("Technikumstrasse 21, 6048 Horw, Switzerland")
 # Out: [47.0143233, 8.305245521466286]
 ```
 
-#### get_altitude_lat_long()
+#### get_altitude_lat_long() <a name="get_altitude_lat_long"></a>
 Returns altitude in meters above sea level for the given WGS84 coordinates. The opentopodata.org api gets used.
 
 ``` python
@@ -90,7 +120,7 @@ get_altitude_lat_long(47.0132975, 8.3059169)
 # Out: 444.9
 ```
 
-#### convert_wsg84_to_lv95()
+#### convert_wsg84_to_lv95() <a name="convert_wsg84_to_lv95"></a>
 Converts WGS84 latitude and longitude coordinates to Swiss coordinate system LV95.
 ``` python
 from pyedautils.geopy import convert_wsg84_to_lv95
@@ -100,7 +130,7 @@ convert_wsg84_to_lv95(47.0132975, 8.3059169)
 # Out: [2665945.104007165, 1207280.4252477456]
 ```
 
-#### get_altitude_lv95()
+#### get_altitude_lv95() <a name="get_altitude_lv95"></a>
 Returns altitude in meters above sea level for the given LV95 coordinates. The geo.admin.ch api gets used.
 
 ``` python
@@ -111,7 +141,7 @@ get_altitude_lv95([2665960.531, 1207281.985])
 # Out: 442.6
 ```
 
-#### get_coordindates_ch_plz()
+#### get_coordindates_ch_plz() <a name="get_coordindates_ch_plz"></a>
 Returns latitude and longitude for a Swiss postal code.
 
 ``` python
@@ -122,7 +152,7 @@ get_coordindates_ch_plz(6048)
 # Out: (47.0108, 8.3039)
 ```
 
-#### get_distance_between_two_points()
+#### get_distance_between_two_points() <a name="get_distance_between_two_points"></a>
 Calculates the distance in km between two points on the Earth's surface given their latitude and longitude coordinates.
 
 ``` python
@@ -136,9 +166,9 @@ get_distance_between_two_points(coord1, coord2)
 # Out: 50.301
 ```
 
-### meteo_swiss.py
+### meteo_swiss.py <a name="meteo_swiss"></a>
 
-#### find_nearest_station()
+#### find_nearest_station() <a name="find_nearest_station"></a>
 
 Returns station id of closest meteo swiss station to a coordinate.
 
@@ -154,9 +184,9 @@ find_nearest_station(coord[0], coord[1], altitude, sensor="temp")
 # Out: "FLU"
 ```
 
-### season.py
+### season.py <a name="season"></a>
 
-#### get_season()
+#### get_season() <a name="get_season"></a>
 
 Get the season name out of a date for filter and grouping purposes.
 
@@ -184,6 +214,3 @@ py -m build
 pip install 
 ```
 
-<hr>
-
-**Disclaimer**<br> The author declines any liability or responsibility in connection with the published code and documentation
