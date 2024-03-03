@@ -16,6 +16,27 @@ The package is available on [PyPi.org](https://pypi.org/) and can be installed w
 pip install pyedautils
 ```
 
+## Plots
+
+### plot_daily_profiles_overview()
+This function creates an overview of typical daily profiles per weekday and season of year with a confidence band where most of the values lie.
+
+```html
+<iframe src="docs/images/plot_daily_profiles_overview.html" height="600" width="800"></iframe>
+```
+
+``` python
+from pyedautils.data_io import load_data
+from pyedautils.plots import load_data
+
+file_path = "pyedautils/data/ele_meter.csv"
+df = load_data(file_path=)
+df['value'] = df['value'].diff()
+df = df.dropna()
+
+plot_daily_profiles_overview(df)
+```
+
 ## Functions
 
 ### data_io.py
@@ -27,9 +48,8 @@ Saves data to a file in various formats (CSV, Pickle, JSON) based on the given f
 ``` python
 from pyedautils.data_io import save_data
 
-data = {"key1": "value1", "key2": "value2"}
-file_path = "./test.json"
-save_data(data, file_path)
+file_path = "./my_filename.json"
+save_data(df, file_path)
 
 ```
 
@@ -39,8 +59,8 @@ Loads data from a file in various formats (CSV, Pickle, JSON) based on the given
 ``` python
 from pyedautils.data_io import load_data
 
-file_path = "./test.json"
-data = load_data(data, file_path)
+file_path = "pyedautils/data/ele_meter.csv"
+df = load_data(file_path)
 
 ```
 
