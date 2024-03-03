@@ -19,11 +19,15 @@ pip install pyedautils
 
 ## Table of contents
 
-**[Plots](#plots**
+---
+
+**[Plots](#plots)**
 - [plot_daily_profiles_overview()](#plot_daily_profiles_overview)
 
+---
+
 **[Functions](#functions)**
-- **[data_io.py](#data-io)**
+- **[data_io.py](#data_io)**
  - [save_data()](#save_data)
  - [load_data()](#load_data)
 - **[geopy.py](#geopy)**
@@ -67,10 +71,10 @@ fig.show(renderer="browser")
 ![plot_daily_profiles_overview](https://raw.githubusercontent.com/retomarek/pyedautils/main/docs/images/plot_daily_profiles_overview.png)
 
 ---
-
-## Functions <a name="functions"></a>
-
-### data_io.py <a name="data_io"></a>
+<a name="functions"></a>
+## Functions
+<a name="data_io"></a>
+### data_io.py 
 File handling utilities for loading and saving data.
 
 #### save_data() <a name="save_data"></a>
