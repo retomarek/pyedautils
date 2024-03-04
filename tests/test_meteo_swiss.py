@@ -23,4 +23,4 @@ class TestGeopyhelpers(unittest.TestCase):
         self.assertEqual(find_nearest_station(coord[0], coord[1], altitude, sensor="rain"), "FLU")
         
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main() # pragma: no cover

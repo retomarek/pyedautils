@@ -55,4 +55,4 @@ class TestGeopyhelpers(unittest.TestCase):
             get_distance_between_two_points(get_coordindates_ch_plz(5555555), get_coordindates_ch_plz(3800))
             
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main() # pragma: no cover

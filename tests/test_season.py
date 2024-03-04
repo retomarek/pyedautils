@@ -76,4 +76,4 @@ class TestSeasonFunction(unittest.TestCase):
         assert_series_equal(get_season(date=pd_datetime_series), expected_seasons)
                 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main() # pragma: no cover

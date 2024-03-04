@@ -19,4 +19,4 @@ class TestPlots(unittest.TestCase):
         self.assertTrue(fig._data[111]["x"][23] == 23)
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main() # pragma: no cover
