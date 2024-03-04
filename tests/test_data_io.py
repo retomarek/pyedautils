@@ -109,7 +109,7 @@ class TestDataIO(unittest.TestCase):
         # Get the captured output
         console_output = captured_output.getvalue().strip()
         
-        self.assertEqual(console_output, "Saving data to: test_data\\test.abc\nError: Unsupported file format")
+        self.assertEqual(console_output, "Saving data to: test_data/test.abc\nError: Unsupported file format")
         
     def test_load_unsupported_format(self):
         # Test data: time series data with datetime index
@@ -126,7 +126,7 @@ class TestDataIO(unittest.TestCase):
         # Get the captured output
         console_output = captured_output.getvalue().strip()
         
-        self.assertEqual(console_output, "Loading data from: test_data\\test.def\nError: Unsupported file format")
+        self.assertEqual(console_output, "Loading data from: test_data/test.def\nError: Unsupported file format")
         
         
 if __name__ == "__main__":
