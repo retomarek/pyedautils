@@ -227,7 +227,8 @@ get_season(datetime(2024,5,5), labels=["Frühling", "Sommer", "Herbst", "Winter"
 ``` python
 # open anaconda console and navigate to pyedautils
 py -m build
-pip install 
+cd dist
+pip install "pyedautils- ... -py3-none-any.whl"
 ```
 
 ---
