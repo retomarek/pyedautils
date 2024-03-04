@@ -1,5 +1,6 @@
 import unittest
 import os
+import shutil
 import pandas as pd
 import numpy as np
 import gzip
@@ -14,10 +15,7 @@ class TestDataIO(unittest.TestCase):
 
     def tearDown(self):
         # Remove the temporary directory and its contents after tests
-        for file_name in os.listdir(self.test_dir):
-            file_path = os.path.join(self.test_dir, file_name)
-            os.remove(file_path)
-        os.rmdir(self.test_dir)
+        shutil.rmtree(self.test_dir)
 
     def test_save_and_load_json(self):
         # Test data
@@ -36,6 +34,22 @@ class TestDataIO(unittest.TestCase):
         values = np.round(np.random.randn(10), 3)
         df = pd.DataFrame({"Value": values}, index=dates)
         file_path = os.path.join(self.test_dir, "test.csv")
+
+        # Test saving and loading CSV file
+        save_data(df, file_path, index=True)
+        loaded_data = load_data(file_path)
+        loaded_data.index = pd.to_datetime(loaded_data.iloc[:, 0])
+        loaded_data.drop(loaded_data.columns[0], axis=1, inplace=True)
+
+        self.assertTrue(isinstance(loaded_data, pd.DataFrame))
+        self.assertTrue(df.equals(loaded_data))
+        
+    def test_save_and_load_new_directory(self):
+        # Test data: time series data with datetime index
+        dates = pd.date_range(start="2022-01-01", periods=10, freq="D")
+        values = np.round(np.random.randn(10), 3)
+        df = pd.DataFrame({"Value": values}, index=dates)
+        file_path = os.path.join(self.test_dir, "newdir/test.csv")
 
         # Test saving and loading CSV file
         save_data(df, file_path, index=True)
@@ -75,6 +89,17 @@ class TestDataIO(unittest.TestCase):
 
         self.assertTrue(isinstance(loaded_data, pd.DataFrame))
         self.assertTrue(df.equals(loaded_data))
+
+    def test_save_unsupported_format(self):
+        # Test data: time series data with datetime index
+        dates = pd.date_range(start="2022-01-01", periods=10, freq="D")
+        values = np.random.randn(10)
+        df = pd.DataFrame({"Value": values}, index=dates)
+        file_path = os.path.join(self.test_dir, "test.abc")
+
+        # Test saving test.abc file
+        with self.assertRaisesRegex(ValueError, "Unsupported file format"):
+            save_data(df, file_path)
 
 if __name__ == "__main__":
     unittest.main() # pragma: no cover
