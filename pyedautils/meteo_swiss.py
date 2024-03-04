@@ -19,7 +19,7 @@ def get_current_station_data():
     except:
         return pd.DataFrame()
 
-def find_nearest_station(lat: float, long: float, altitude:float, sensor=None):
+def find_nearest_station(lat: float, long: float, altitude:float, sensor:str):
     """
     Returns station id of closest meteo swiss station to a coordinate.
 
@@ -60,34 +60,32 @@ def find_nearest_station(lat: float, long: float, altitude:float, sensor=None):
         stationID = all_station_data.loc[id,"Abk."]
         stationIDString = all_station_data.loc[id,"Station"]
         stationAltitude = float(all_station_data.loc[id,"Stationshöhe m ü. M."])
-        if(sensor==None):
-            break
-        else:
-            if((float(altitude) > (stationAltitude - 150.0)) and (float(altitude) < (stationAltitude + 150.0))):
-                if(sensor=="temp" and ("Temperatur" in sensors)):
-                    print("Closest station for temp: " + str(stationIDString))
-                    found = True
-                    break
-                elif(sensor=="globrad" and ("Globalstrahlung" in sensors)):
-                    print("Closest station for globalrad: " + str(stationIDString))
-                    found = True
-                    break
-                elif(sensor=="relhum" and ("Feuchte" in sensors)):
-                    print("Closest station for relhum: " + str(stationIDString))
-                    found = True
-                    break
-                elif(sensor=="rain" and ("Niederschlag" in sensors)):
-                    print("Closest station for rain: " + str(stationIDString))
-                    found = True
-                    break
-                else:
-                    i += 1
-                    continue
+        if((float(altitude) > (stationAltitude - 150.0)) and (float(altitude) < (stationAltitude + 150.0))):
+            if(sensor=="temp" and ("Temperatur" in sensors)):
+                print("Closest station for temp: " + str(stationIDString))
+                found = True
+                break
+            elif(sensor=="globrad" and ("Globalstrahlung" in sensors)):
+                print("Closest station for globalrad: " + str(stationIDString))
+                found = True
+                break
+            elif(sensor=="relhum" and ("Feuchte" in sensors)):
+                print("Closest station for relhum: " + str(stationIDString))
+                found = True
+                break
+            elif(sensor=="rain" and ("Niederschlag" in sensors)):
+                print("Closest station for rain: " + str(stationIDString))
+                found = True
+                break
             else:
                 i += 1
                 continue
-            
-            if(found):
-                break
+        else:
+            i += 1
+            continue
+    
+    if not found:
+        stationID = None
+    
     return stationID
 
