@@ -26,9 +26,10 @@ def save_data(data, file_path, index=False):
     
     try:
         # Create directory if it doesn't exist
-        if not os.path.exists(os.path.dirname(file_path)):
-            os.makedirs(os.path.dirname(file_path))
-            print("Directory did not exist, created it now")
+        if os.path.dirname(file_path):
+            if not os.path.exists(os.path.dirname(file_path)):
+                os.makedirs(os.path.dirname(file_path))
+                print("Directory did not exist, created it now")
         
         print("Saving data to:", file_path)
         if file_path.endswith(".csv"):
