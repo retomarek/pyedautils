@@ -50,7 +50,7 @@ def save_data(data, file_path, index=False):
         print(" -> File size in bytes:", math.trunc(os.path.getsize(file_path) / 1024))
     
     except Exception as e:
-        print("Error:", e)
+        print("Error:", e) # pragma: no cover
 
 def load_data(file_path):
     """
@@ -69,7 +69,7 @@ def load_data(file_path):
     start_time = time.time()
     
     try:
-        print("Loading data from file:", file_path)
+        print("Loading data from:", file_path)
         if file_path.endswith(".csv"):
             data = pd.read_csv(file_path, sep=None, engine='python')
         elif file_path.endswith(".pklz"):
@@ -90,5 +90,5 @@ def load_data(file_path):
         return data
     
     except Exception as e:
-        print("Error:", e)
+        print("Error:", e) # pragma: no cover
         return None

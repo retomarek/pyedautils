@@ -1,10 +1,13 @@
 import unittest
 import os
+import sys
+import io
 import shutil
 import pandas as pd
 import numpy as np
 import gzip
 import pickle
+
 from pyedautils.data_io import save_data, load_data
 
 class TestDataIO(unittest.TestCase):
@@ -69,8 +72,7 @@ class TestDataIO(unittest.TestCase):
 
         # Test saving and loading pickle file
         save_data(df, file_path)
-        with open(file_path, 'rb') as f:
-            loaded_data = pickle.load(f)
+        loaded_data = load_data(file_path)
 
         self.assertTrue(isinstance(loaded_data, pd.DataFrame))
         self.assertTrue(df.equals(loaded_data))
@@ -84,22 +86,48 @@ class TestDataIO(unittest.TestCase):
 
         # Test saving and loading compressed pickle file
         save_data(df, file_path)
-        with gzip.open(file_path, 'rb') as f:
-            loaded_data = pickle.load(f)
+        loaded_data = load_data(file_path)
 
         self.assertTrue(isinstance(loaded_data, pd.DataFrame))
         self.assertTrue(df.equals(loaded_data))
-
+    
     def test_save_unsupported_format(self):
         # Test data: time series data with datetime index
         dates = pd.date_range(start="2022-01-01", periods=10, freq="D")
         values = np.random.randn(10)
         df = pd.DataFrame({"Value": values}, index=dates)
         file_path = os.path.join(self.test_dir, "test.abc")
-
-        # Test saving test.abc file
-        with self.assertRaisesRegex(ValueError, "Unsupported file format"):
-            save_data(df, file_path)
-
+        
+        # Redirect stdout to a StringIO object to capture the output
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+        save_data(df, file_path)
+        
+        # Reset stdout
+        sys.stdout = sys.__stdout__
+        
+        # Get the captured output
+        console_output = captured_output.getvalue().strip()
+        
+        self.assertEqual(console_output, "Saving data to: test_data\\test.abc\nError: Unsupported file format")
+        
+    def test_load_unsupported_format(self):
+        # Test data: time series data with datetime index
+        file_path = os.path.join(self.test_dir, "test.def")
+        
+        # Redirect stdout to a StringIO object to capture the output
+        captured_output = io.StringIO()
+        sys.stdout = captured_output
+        df = load_data(file_path)
+        
+        # Reset stdout
+        sys.stdout = sys.__stdout__
+        
+        # Get the captured output
+        console_output = captured_output.getvalue().strip()
+        
+        self.assertEqual(console_output, "Loading data from: test_data\\test.def\nError: Unsupported file format")
+        
+        
 if __name__ == "__main__":
     unittest.main() # pragma: no cover
