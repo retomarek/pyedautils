@@ -1,7 +1,6 @@
 # # -*- coding: utf-8 -*-
 
 import unittest
-import requests
 from requests.exceptions import RequestException
 from unittest.mock import patch
 from pyedautils.geopy import get_altitude_lat_long, get_lat_long_address, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz, get_distance_between_two_points
