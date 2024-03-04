@@ -5,8 +5,6 @@ import io
 import shutil
 import pandas as pd
 import numpy as np
-import gzip
-import pickle
 
 from pyedautils.data_io import save_data, load_data
 

@@ -21,6 +21,11 @@ class TestGeopyhelpers(unittest.TestCase):
         self.assertEqual(find_nearest_station(coord[0], coord[1], altitude, sensor="relhum"), "FLU")
         self.assertEqual(find_nearest_station(coord[0], coord[1], altitude, sensor="globrad"), "BAN")
         self.assertEqual(find_nearest_station(coord[0], coord[1], altitude, sensor="rain"), "FLU")
+        with self.assertRaises(ValueError):
+            find_nearest_station(8.3, 47, 450, sensor="temp") # coordinates swapped
+            
+        with self.assertRaises(TypeError):
+            find_nearest_station(coord[0], coord[1], altitude) # no sensor defined
         
 if __name__ == '__main__':
     unittest.main() # pragma: no cover
