@@ -77,4 +77,4 @@ class TestDataIO(unittest.TestCase):
         self.assertTrue(df.equals(loaded_data))
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main() # pragma: no cover
