@@ -148,6 +148,30 @@ class TestComfortZone(unittest.TestCase):
             self.assertLessEqual(x, 0.02)
 
 
+class TestComfortZonePhiZeroStart(unittest.TestCase):
+    """Test create_comfort with phi_min=0 (exercises the Phi==0 branch)."""
+
+    def test_comfort_phi_starts_at_zero(self):
+        polygon = create_comfort((20, 26), (0, 0.65), (0, 0.0115), 101325.0)
+        self.assertGreater(len(polygon), 3)
+        self.assertAlmostEqual(polygon[0][0], polygon[-1][0], places=8)
+
+
+class TestScalarInternals(unittest.TestCase):
+    """Test scalar internal functions to reach full coverage."""
+
+    def test_rel_humidity_calls_scalar_p_sat(self):
+        # rel_humidity calls _p_sat_scalar internally (scalar path)
+        phi = rel_humidity(0.005, 20, 101325.0)
+        self.assertGreater(phi, 0)
+        self.assertLess(phi, 1)
+
+    def test_rel_humidity_below_zero(self):
+        # Exercises _p_sat_scalar with t < 0.01
+        phi = rel_humidity(0.001, -10, 101325.0)
+        self.assertGreater(phi, 0)
+
+
 class TestPlotMollierHx(unittest.TestCase):
     """Tests for plot_mollier_hx (D3 HTML output)."""
 
@@ -175,10 +199,11 @@ class TestPlotMollierHx(unittest.TestCase):
         })
         self.assertIn("[18, 24]", html)
 
-    def test_with_synthetic_data(self):
+    def test_with_synthetic_data_all_seasons(self):
+        # Full year to cover all 4 seasons in _get_season_fast
+        timestamps = pd.date_range("2023-01-01", periods=365 * 24, freq="h")
         np.random.seed(42)
-        n = 100
-        timestamps = pd.date_range("2023-01-01", periods=n, freq="h")
+        n = len(timestamps)
         df = pd.DataFrame({
             "timestamp": timestamps,
             "humidity": np.random.uniform(30, 70, n),
@@ -186,8 +211,8 @@ class TestPlotMollierHx(unittest.TestCase):
         })
         html = plot_mollier_hx(data=df)
         self.assertIn("dataRecords", html)
-        # Should contain season labels in German
-        self.assertIn("Winter", html)
+        for season in ["Winter", "Frühling", "Sommer", "Herbst"]:
+            self.assertIn(season, html)
 
     def test_empty_dataframe(self):
         df = pd.DataFrame(columns=["timestamp", "humidity", "temperature"])
