@@ -14,6 +14,9 @@ repository:
   url: https://github.com/retomarek/pyedautils
   branch: main
 
+launch_buttons:
+  thebe: false
+
 html:
   use_issues_button: true
   use_repository_button: true
