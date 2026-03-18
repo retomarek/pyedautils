@@ -6,7 +6,8 @@ author: retomarek
 logo: ""
 
 execute:
-  execute_notebooks: "off"
+  execute_notebooks: "auto"
+  timeout: 120
 
 repository:
   url: https://github.com/retomarek/pyedautils
