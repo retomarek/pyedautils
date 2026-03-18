@@ -213,6 +213,10 @@ def plot_heatmap_median_weeks(
     df_h["dayhour"] = df_h["hour"].dt.hour
     df_h["season"] = get_season(df_h["hour"])
 
+    # Rename internal English season names to custom labels
+    rename_map = dict(zip(DEFAULT_SEASONS, seasons))
+    df_h["season"] = df_h["season"].map(rename_map).fillna(df_h["season"])
+
     df_median = (
         df_h.groupby(["season", "weekday", "dayhour"])["value"]
         .median()

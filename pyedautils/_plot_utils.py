@@ -49,6 +49,11 @@ def prepare_hourly_seasonal_data(
     df_h["dayhour"] = df_h["hour"].dt.hour
     df_h["season"] = get_season(df_h["hour"])
 
+    # Rename internal English season names to custom labels
+    if seasons is not None:
+        rename_map = dict(zip(DEFAULT_SEASONS, seasons))
+        df_h["season"] = df_h["season"].map(rename_map).fillna(df_h["season"])
+
     df_agg = df_h.groupby(["season", "weekday", "dayhour"]).agg(
         valueMedian=("value", lambda x: x.quantile(0.5)),
         valueUpper=("value", lambda x: x.quantile(confidence / 100)),
