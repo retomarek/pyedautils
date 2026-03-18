@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from unittest.mock import patch
-from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles_decomposed, plot_heatmap_median_weeks
+from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_daily_profiles_decomposed, plot_heatmap_median_weeks
 
 
 def _load_local_data():
@@ -156,6 +156,63 @@ class TestPlotDailyProfilesDecomposed(unittest.TestCase):
         df = _make_synthetic_data(n_days=30)
         fig = plot_daily_profiles_decomposed(df)
         self.assertEqual(len(fig.data), 7)
+
+
+class TestPlotDailyProfiles(unittest.TestCase):
+    """Tests for plot_daily_profiles with method parameter."""
+
+    @classmethod
+    def setUpClass(cls):
+        timestamps = pd.date_range(start='2023-01-01', end='2023-12-31 23:00', freq='h')
+        np.random.seed(42)
+        values = np.random.rand(len(timestamps)) * 100
+        cls.df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+
+    def test_mean_method(self):
+        fig = plot_daily_profiles(self.df, method="mean")
+        self.assertEqual(len(fig.data), 7)
+
+    def test_decomposed_method(self):
+        fig = plot_daily_profiles(self.df, method="decomposed")
+        self.assertEqual(len(fig.data), 7)
+
+    def test_mean_default_title(self):
+        fig = plot_daily_profiles(self.df, method="mean")
+        self.assertIn("Mean", fig.layout.title.text)
+
+    def test_decomposed_default_title(self):
+        fig = plot_daily_profiles(self.df, method="decomposed")
+        self.assertIn("Decomposed", fig.layout.title.text)
+
+    def test_invalid_method(self):
+        with self.assertRaises(ValueError):
+            plot_daily_profiles(self.df, method="invalid")
+
+    def test_mean_trace_names(self):
+        fig = plot_daily_profiles(self.df, method="mean")
+        expected_days = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                         "Friday", "Saturday", "Sunday"]
+        trace_names = [t.name for t in fig.data]
+        self.assertEqual(trace_names, expected_days)
+
+    def test_mean_custom_title_and_ylab(self):
+        fig = plot_daily_profiles(self.df, method="mean", title="Custom", ylab="kWh")
+        self.assertIn("Custom", fig.layout.title.text)
+
+    def test_overlayed_returns_html(self):
+        html = plot_daily_profiles(self.df, method="overlayed")
+        self.assertIsInstance(html, str)
+        self.assertIn("plotly_hover", html)
+
+    def test_overlayed_default_title(self):
+        html = plot_daily_profiles(self.df, method="overlayed")
+        self.assertIn("Overlayed", html)
+
+    def test_overlayed_contains_weekdays(self):
+        html = plot_daily_profiles(self.df, method="overlayed")
+        for day in ["Monday", "Tuesday", "Wednesday", "Thursday",
+                     "Friday", "Saturday", "Sunday"]:
+            self.assertIn(day, html)
 
 
 @patch('pyedautils.season.get_season', side_effect=_fast_get_season)
