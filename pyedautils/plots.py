@@ -2,7 +2,6 @@
 
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -17,19 +16,18 @@ from pyedautils._plot_utils import (
     style_subplot_axes,
 )
 
-DEFAULT_MOLLIER_COLORS = {
-    "temperature": "#63c1ff",
-    "density": "#888888",
-    "rel_humidity": "#555555",
-    "enthalpy": "#CCCCCC",
-    "comfort": "rgba(154,205,50,0.4)",
-}
-
 DEFAULT_SEASON_COLORS = {
     "Winter": "#365c8d",
     "Spring": "#2db27d",
     "Summer": "#febc2b",
     "Fall": "#824b04",
+}
+
+_SEASON_LABELS_DE = {
+    "Winter": "Winter",
+    "Spring": "Frühling",
+    "Summer": "Sommer",
+    "Fall": "Herbst",
 }
 
 
@@ -164,304 +162,27 @@ def plot_daily_profiles_decomposed(
     return fig
 
 
-def _nice_ticks(vmin, vmax, n):
-    """Generate *n* nicely spaced tick values in [*vmin*, *vmax*]."""
-    import math as _m
-    rng = vmax - vmin
-    if rng == 0:
-        return [vmin]
-    step = rng / n
-    mag = 10 ** _m.floor(_m.log10(step))
-    residual = step / mag
-    if residual <= 1.5:
-        nice_step = 1 * mag
-    elif residual <= 3:
-        nice_step = 2 * mag
-    elif residual <= 7:
-        nice_step = 5 * mag
-    else:
-        nice_step = 10 * mag
-    start = _m.ceil(vmin / nice_step) * nice_step
-    ticks = []
-    v = start
-    while v <= vmax + nice_step * 0.01:
-        ticks.append(round(v, 10))
-        v += nice_step
-    return ticks
+def _load_d3_js():
+    """Load bundled D3.js source files for the Mollier diagram."""
+    from importlib import resources as _res
+    d3_dir = _res.files("pyedautils") / "data" / "d3_mollier"
+    return {
+        "mollier_functions": (d3_dir / "mollier_functions.js").read_text(encoding="utf-8"),
+        "coordinate_generator": (d3_dir / "CoordinateGenerator.js").read_text(encoding="utf-8"),
+        "draw_comfort": (d3_dir / "drawComfort.js").read_text(encoding="utf-8"),
+    }
 
 
-def _sweep_x_range(domain_x, dx, y_func):
-    """Sweep x from domain_x[0] to domain_x[1] and collect (x, y) points."""
-    xs, ys = [], []
-    xv = domain_x[0]
-    while xv <= domain_x[1] + dx * 0.5:
-        xs.append(xv)
-        ys.append(y_func(xv))
-        xv += dx
-    return xs, ys
-
-
-def _add_iso_line(fig, xs, ys, color, width=1):
-    """Add a single iso-line trace to *fig*."""
-    fig.add_trace(go.Scatter(
-        x=xs, y=ys, mode="lines",
-        line=dict(color=color, width=width),
-        showlegend=False, hoverinfo="skip",
-    ))
-
-
-def _phi_label_pos(phi_val, phi_threshold, domain_x, domain_y, pressure):
-    """Compute label position for a relative-humidity iso-line."""
-    from pyedautils._mollier import get_x_y, x_phiy
-
-    dim_x = domain_x[1] - domain_x[0]
-    dim_y = domain_y[1] - domain_y[0]
-    label_y = domain_y[1] - 0.03 * dim_y
-
-    if phi_val < phi_threshold:
-        return x_phiy(phi_val, label_y, pressure), label_y
-    lx = domain_x[1] - 0.1 * dim_x
-    t = _find_t_for_phi_at_x(phi_val, lx, pressure)
-    _, ly = get_x_y(t, phi_val, pressure)
-    return lx, ly
-
-
-def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure,
-                      annotations):
-    """Draw relative-humidity iso-lines and the saturation cover."""
-    from pyedautils._mollier import get_x_y, rel_humidity as m_rel_humidity
-
-    dim_x = domain_x[1] - domain_x[0]
-    dim_y = domain_y[1] - domain_y[0]
-
-    corner_phi = [m_rel_humidity(cx, cy, pressure) for cx, cy in corners]
-    phi_max = min(max(corner_phi), 1.0)
-    if (corner_phi[1] < 1
-            and m_rel_humidity(
-                domain_x[0] + dim_x * 0.99, domain_y[0], pressure
-            ) > corner_phi[1]):
-        phi_max = 1.0
-    phi_ticks = _nice_ticks(min(corner_phi), phi_max, 10)
-
-    try:
-        phi_threshold = m_rel_humidity(
-            domain_x[1] - 0.1 * dim_x, domain_y[1] - 0.03 * dim_y, pressure)
-    except (ValueError, RuntimeError, ZeroDivisionError):
-        phi_threshold = 1.0
-
-    phi_sat_xs, phi_sat_ys = [], []
-    for phi_val in phi_ticks:
-        xs, ys = [], []
-        t_sweep = domain_t[0]
-        while t_sweep <= domain_t[1] + dt * 0.5:
-            xv, yv = get_x_y(t_sweep, phi_val, pressure)
-            if xv > domain_x[1]:
-                break
-            xs.append(xv)
-            ys.append(yv)
-            t_sweep += dt
-        if xs:
-            _add_iso_line(fig, xs, ys, c["rel_humidity"], width=1.5)
-            if phi_val == phi_ticks[-1]:
-                phi_sat_xs, phi_sat_ys = list(xs), list(ys)
-            _add_phi_label(annotations, phi_val, phi_threshold, c,
-                           domain_x, domain_y, pressure)
-
-    # Saturation cover
-    if phi_sat_xs:
-        cx = list(phi_sat_xs) + [
-            domain_x[1] + 0.1 * dim_x, domain_x[1] + 0.1 * dim_x,
-            phi_sat_xs[0], phi_sat_xs[0],
-        ]
-        cy = list(phi_sat_ys) + [
-            phi_sat_ys[-1], domain_y[0] - 0.1 * dim_y,
-            domain_y[0] - 0.1 * dim_y, phi_sat_ys[0],
-        ]
-        fig.add_trace(go.Scatter(
-            x=cx, y=cy, mode="lines",
-            fill="toself", fillcolor="white",
-            line=dict(color="black", width=1.5),
-            showlegend=False, hoverinfo="skip",
-        ))
-
-
-def _add_phi_label(annotations, phi_val, phi_threshold, c, domain_x, domain_y, pressure):
-    """Add a single relative-humidity label annotation."""
-    try:
-        lx, ly = _phi_label_pos(phi_val, phi_threshold, domain_x, domain_y, pressure)
-        if domain_x[0] <= lx <= domain_x[1] and domain_y[0] <= ly <= domain_y[1]:
-            annotations.append(dict(
-                x=lx, y=ly, text=f"{phi_val * 100:.0f} %", showarrow=False,
-                font=dict(size=10, color=c["rel_humidity"]),
-                bgcolor="rgba(255,255,255,0.7)", borderpad=1,
-            ))
-    except (ValueError, RuntimeError, ZeroDivisionError):
-        pass
-
-
-def _find_t_for_phi_at_x(phi, x_val, pressure):
-    """Find temperature where get_x_y(t, phi, p) produces x ≈ x_val."""
-    from pyedautils._mollier import get_x_y
-    # Simple bisection
-    t_lo, t_hi = -40.0, 80.0
-    for _ in range(60):
-        t_mid = (t_lo + t_hi) / 2.0
-        xv, _ = get_x_y(t_mid, phi, pressure)
-        if xv < x_val:
-            t_lo = t_mid
-        else:
-            t_hi = t_mid
-    return (t_lo + t_hi) / 2.0
-
-
-def _add_enthalpy_isolines(fig, c, corners, domain_x, domain_y, pressure, annotations):
-    """Draw enthalpy iso-lines with labels."""
-    from pyedautils._mollier import enthalpy as m_enthalpy, x_hy, y_hx
-
-    dim_x = domain_x[1] - domain_x[0]
-    corner_h = [m_enthalpy(cx, cy) for cx, cy in corners]
-    h_ticks = _nice_ticks(min(corner_h), max(corner_h), 20)
-    h_threshold = m_enthalpy(domain_x[1] - 0.03 * dim_x, domain_y[0])
-
-    for h_val in h_ticks:
-        x0, y0 = domain_x[0], y_hx(h_val, domain_x[0])
-        x1, y1 = x_hy(h_val, domain_y[0]), domain_y[0]
-        if y0 > domain_y[1]:
-            x0, y0 = x_hy(h_val, domain_y[1]), domain_y[1]
-        if x1 > domain_x[1]:
-            x1, y1 = domain_x[1], y_hx(h_val, domain_x[1])
-        fig.add_trace(go.Scatter(
-            x=[x0, x1], y=[y0, y1],
-            mode="lines", line=dict(color=c["enthalpy"], width=1),
-            showlegend=False, hoverinfo="skip",
-        ))
-        lx = x_hy(h_val, domain_y[0]) if h_val < h_threshold else domain_x[1] - 0.03 * dim_x
-        ly = domain_y[0] if h_val < h_threshold else y_hx(h_val, lx)
-        if domain_x[0] <= lx <= domain_x[1] and domain_y[0] <= ly <= domain_y[1]:
-            annotations.append(dict(
-                x=lx, y=ly, text=f"{h_val:.0f}", showarrow=False,
-                font=dict(size=10, color=c["enthalpy"]),
-                bgcolor="rgba(255,255,255,0.7)", borderpad=1,
-            ))
-
-
-def _add_mollier_isolines(fig, show, c, domain_x, domain_y, pressure, num_points):
-    """Draw iso-lines (temperature, density, humidity, enthalpy) onto *fig*.
-
-    Returns a list of annotation dicts for iso-line labels.
-    """
-    from pyedautils._mollier import (
-        density as m_density,
-        get_x_y_tx,
-        temperature as m_temperature,
-        y_rhox,
-    )
-
-    dx = (domain_x[1] - domain_x[0]) / num_points
-    dim_x = domain_x[1] - domain_x[0]
-
-    corners = [
-        (domain_x[0], domain_y[0]), (domain_x[1], domain_y[0]),
-        (domain_x[0], domain_y[1]), (domain_x[1], domain_y[1]),
-    ]
-    corner_t = [m_temperature(cx, cy) for cx, cy in corners]
-    domain_t = (min(corner_t), max(corner_t))
-    dt = (domain_t[1] - domain_t[0]) / num_points
-
-    annotations = []
-
-    if show["temperature"]:
-        for t_val in _nice_ticks(domain_t[0], domain_t[1], 40):
-            xs, ys = _sweep_x_range(domain_x, dx,
-                                    lambda xv, t=t_val: get_x_y_tx(t, xv, pressure)[1])
-            _add_iso_line(fig, xs, ys, c["temperature"])
-
-    if show["density"]:
-        corner_rho = [m_density(cx, cy, pressure) for cx, cy in corners]
-        label_x = domain_x[0] + 0.03 * dim_x
-        for rho_val in _nice_ticks(min(corner_rho), max(corner_rho), 8):
-            xs, ys = _sweep_x_range(domain_x, dx,
-                                    lambda xv, r=rho_val: y_rhox(r, xv, pressure))
-            _add_iso_line(fig, xs, ys, c["density"])
-            ly = y_rhox(rho_val, label_x, pressure)
-            if domain_y[0] <= ly <= domain_y[1]:
-                annotations.append(dict(
-                    x=label_x, y=ly, text=f"{rho_val:.2f}", showarrow=False,
-                    font=dict(size=10, color=c["density"]),
-                    bgcolor="rgba(255,255,255,0.7)", borderpad=1,
-                ))
-
-    if show["enthalpy"]:
-        _add_enthalpy_isolines(fig, c, corners, domain_x, domain_y, pressure, annotations)
-
-    if show["rel_humidity"]:
-        _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure,
-                          annotations)
-
-    # Unit annotations on right side
-    annotations.append(dict(
-        x=domain_x[1], y=(domain_y[0] + domain_y[1]) / 2,
-        text="enthalpy: [h] = kJ/kg", showarrow=False, textangle=-90,
-        font=dict(size=10, color=c["enthalpy"]),
-        xanchor="left", xshift=10,
-    ))
-    annotations.append(dict(
-        x=domain_x[1], y=(domain_y[0] + domain_y[1]) / 2,
-        text="density: [ρ] = kg/m³", showarrow=False, textangle=-90,
-        font=dict(size=10, color=c["density"]),
-        xanchor="left", xshift=25,
-    ))
-
-    return annotations
-
-
-def _add_mollier_data(fig, data, pressure):
-    """Add season-coloured data markers to a Mollier figure."""
-    from pyedautils._mollier import get_x_y
-    from pyedautils.season import get_season
-
-    df = data.copy()
-    df.columns = ["timestamp", "humidity", "temperature"]
-    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
-    df = df.dropna(subset=["humidity", "temperature"])
-    if df.empty:
-        return
-
-    t_arr = df["temperature"].values
-    phi_arr = df["humidity"].values / 100.0
-    x_arr, y_arr = get_x_y(t_arr, phi_arr, pressure)
-
-    df["x_coord"] = x_arr
-    df["y_coord"] = y_arr
-    df["season"] = get_season(df["timestamp"])
-
-    from pyedautils._mollier import (
-        rel_humidity as m_rel_humidity,
-        temperature as m_temperature,
-    )
-
-    df["hover"] = [
-        f"{ts.strftime('%Y-%m-%d %H:%M')}<br>"
-        f"x: {xv * 1000:.2f} g/kg<br>"
-        f"T: {m_temperature(xv, yv):.2f} °C<br>"
-        f"φ: {m_rel_humidity(xv, yv, pressure) * 100:.2f} %"
-        for ts, xv, yv in zip(df["timestamp"], df["x_coord"], df["y_coord"])
-    ]
-
-    for season_name in df["season"].unique():
-        subset = df[df["season"] == season_name]
-        fig.add_trace(go.Scatter(
-            x=subset["x_coord"], y=subset["y_coord"],
-            mode="markers",
-            marker=dict(
-                size=6,
-                color=DEFAULT_SEASON_COLORS.get(season_name, "grey"),
-                opacity=0.4,
-            ),
-            name=season_name,
-            text=subset["hover"],
-            hoverinfo="text",
-        ))
+def _get_season_fast(dt):
+    """Fast season detection without ephem (for D3 data prep)."""
+    m = dt.month
+    if m in (12, 1, 2):
+        return "Winter"
+    elif m in (3, 4, 5):
+        return "Spring"
+    elif m in (6, 7, 8):
+        return "Summer"
+    return "Fall"
 
 
 def plot_mollier_hx(
@@ -470,17 +191,14 @@ def plot_mollier_hx(
     domain_x: Tuple[float, float] = (0.0, 0.020),
     domain_y: Tuple[float, float] = (-20.0, 50.0),
     comfort_zone: Optional[Dict[str, Tuple[float, float]]] = None,
-    colors: Optional[Dict[str, str]] = None,
-    title: str = "Mollier h,x-Diagram",
-    show_isolines: Optional[Dict[str, bool]] = None,
-    num_points: int = 100,
-) -> go.Figure:
+    height: int = 700,
+) -> str:
     """
-    Create a Mollier h,x-diagram (psychrometric chart) with iso-lines.
+    Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
 
-    The diagram visualises the state of moist air using iso-lines for
-    temperature, enthalpy, relative humidity and density, plus an optional
-    comfort zone and measured data points colour-coded by season.
+    Uses D3.js for fast SVG rendering with iso-lines for temperature, enthalpy,
+    relative humidity and density, a comfort zone, and optional measured data
+    points colour-coded by season with interactive hover tooltips.
 
     Args:
         data: Optional DataFrame with columns [timestamp, humidity, temperature].
@@ -491,78 +209,180 @@ def plot_mollier_hx(
         comfort_zone: Dict with keys "temperature", "rel_humidity", "abs_humidity",
             each a (min, max) tuple. Defaults: T=[20, 26], phi=[0.30, 0.65],
             x=[0, 0.0115].
-        colors: Colour overrides for iso-lines and comfort zone.
-            Keys: "temperature", "density", "rel_humidity", "enthalpy", "comfort".
-        title: Plot title.
-        show_isolines: Enable/disable iso-line families. Keys: "temperature",
-            "density", "rel_humidity", "enthalpy". All True by default.
-        num_points: Number of points per curve (smoothness). Default 100.
+        height: Diagram height in pixels. Default 700.
 
     Returns:
-        go.Figure: Interactive Plotly figure.
+        str: Self-contained HTML string with inline D3.js rendering.
+            Can be saved to a file, used with ``streamlit.components.v1.html()``,
+            or displayed in a Jupyter notebook via ``IPython.display.HTML()``.
     """
-    from pyedautils._mollier import create_comfort
+    import json
 
-    c = {**DEFAULT_MOLLIER_COLORS, **(colors or {})}
-    show = {
-        "temperature": True, "density": True,
-        "rel_humidity": True, "enthalpy": True,
-        **(show_isolines or {}),
-    }
-
-    fig = go.Figure()
-
-    # Iso-lines
-    iso_annotations = _add_mollier_isolines(
-        fig, show, c, domain_x, domain_y, pressure, num_points)
-
-    # Comfort zone
-    cz = comfort_zone or {}
-    polygon = create_comfort(
-        cz.get("temperature", (20, 26)),
-        cz.get("rel_humidity", (0.30, 0.65)),
-        cz.get("abs_humidity", (0, 0.0115)),
-        pressure,
+    from pyedautils._mollier import (
+        get_x_y,
+        rel_humidity as m_rel_humidity,
+        temperature as m_temperature,
     )
-    if polygon:
-        fig.add_trace(go.Scatter(
-            x=[pt[0] for pt in polygon],
-            y=[pt[1] for pt in polygon],
-            mode="lines", fill="toself", fillcolor=c["comfort"],
-            line=dict(color="yellowgreen", width=1),
-            showlegend=False, name="Comfort Zone",
-        ))
 
-    # Data points
+    js = _load_d3_js()
+
+    # Prepare data JSON
+    data_json = "null"
     if data is not None and not data.empty:
-        _add_mollier_data(fig, data, pressure)
+        df = data.copy()
+        df.columns = ["timestamp", "humidity", "temperature"]
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True).dt.tz_localize(None)
+        df = df.dropna(subset=["humidity", "temperature"])
+        if not df.empty:
+            t_arr = df["temperature"].values
+            phi_arr = df["humidity"].values / 100.0
+            x_arr, y_arr = get_x_y(t_arr, phi_arr, pressure)
+            df["season"] = df["timestamp"].apply(_get_season_fast)
+            records = []
+            for i in range(len(df)):
+                ts = df.iloc[i]["timestamp"]
+                xv, yv = float(x_arr[i]), float(y_arr[i])
+                records.append({
+                    "x": xv, "y": yv,
+                    "season": _SEASON_LABELS_DE.get(df.iloc[i]["season"], "?"),
+                    "ts": ts.strftime("%Y-%m-%d %H:%M"),
+                    "temp": round(float(m_temperature(xv, yv)), 2),
+                    "phi": round(float(m_rel_humidity(xv, yv, pressure) * 100), 2),
+                    "xg": round(xv * 1000, 2),
+                })
+            data_json = json.dumps(records)
 
-    # Layout
-    x_tick_vals = np.arange(domain_x[0], domain_x[1] + 0.001, 0.002)
-    fig.update_layout(
-        title_text=f"<b>{title}</b>",
-        title_font=dict(size=20),
-        title_x=0.5,
-        template="plotly_white",
-        annotations=iso_annotations,
-    )
+    cz = comfort_zone or {}
+    comfort_t = json.dumps(list(cz.get("temperature", (20, 26))))
+    comfort_phi = json.dumps(list(cz.get("rel_humidity", (0.30, 0.65))))
+    comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
+    domain_x_js = json.dumps(list(domain_x))
+    domain_y_js = json.dumps(list(domain_y))
 
-    # Axes — set after layout to ensure they override the template
-    fig.update_xaxes(
-        title=dict(text="Absolute Humidity [g/kg]", font=dict(color="black", size=14)),
-        range=list(domain_x),
-        tickvals=x_tick_vals.tolist(),
-        ticktext=[f"{v * 1000:.0f}" for v in x_tick_vals],
-        tickfont=dict(color="black", size=12),
-        showline=True, linewidth=1, linecolor="black", mirror=True,
-        ticks="outside", ticklen=5, tickcolor="black",
-    )
-    fig.update_yaxes(
-        title=dict(text="Temperature [°C]", font=dict(color="#63c1ff", size=14)),
-        range=list(domain_y),
-        tickfont=dict(color="#63c1ff", size=12),
-        showline=True, linewidth=1, linecolor="black", mirror=True,
-        ticks="outside", ticklen=5, tickcolor="#63c1ff",
-    )
+    season_colors = json.dumps(
+        {v: DEFAULT_SEASON_COLORS[k] for k, v in _SEASON_LABELS_DE.items()})
 
-    return fig
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<style>
+  body {{ margin: 0; padding: 0; background: white; overflow: hidden; }}
+  #diagram {{ width: 100%; }}
+  .tooltip {{
+    position: absolute; background: rgba(255,255,255,0.9);
+    border-radius: 4px; padding: 6px 8px; pointer-events: none;
+    font-family: Tahoma, Geneva, sans-serif; font-size: 11px;
+    box-shadow: 2px 2px 6px rgba(0,0,0,0.2); opacity: 0;
+  }}
+</style>
+</head>
+<body>
+<div id="diagram"></div>
+<div class="tooltip" id="tt"></div>
+
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script>
+{js["mollier_functions"]}
+{js["coordinate_generator"]}
+{js["draw_comfort"]}
+
+(function() {{
+  let p = {pressure};
+  let domainX = {domain_x_js};
+  let domainY = {domain_y_js};
+  let rangeT = {comfort_t};
+  let rangePhi = {comfort_phi};
+  let rangeX = {comfort_x};
+  let dataRecords = {data_json};
+  let colorMap = {season_colors};
+
+  let Height = {height};
+  let container = document.getElementById("diagram");
+  let Width = container.getBoundingClientRect().width || 900;
+
+  let margin = {{top: 30, right: 70, bottom: 35, left: 50}};
+  let width = Width - margin.left - margin.right;
+  let height = Height - margin.top - margin.bottom;
+
+  let svg = d3.select("#diagram").append("svg")
+    .attr("width", Width).attr("height", Height);
+  let bg = svg.append("g").attr("id", "theplot");
+  let clip = svg.append("defs").append("svg:clipPath")
+    .attr("id", "clip").append("svg:rect")
+    .attr("width", width).attr("height", height);
+  let plot = svg.append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+    .attr("clip-path", "url(#clip)");
+
+  drawHXCoordinates(bg, Width, Height, margin, domainX, domainY, p);
+
+  let x = d3.scaleLinear().range([0, width]).domain(domainX);
+  let y = d3.scaleLinear().range([height, 0]).domain(domainY);
+
+  let line = d3.line().x(d => x(d.x)).y(d => y(d.y));
+  let pathos = createComfort(rangeT, rangePhi, rangeX, p);
+  if (pathos && pathos.length > 0) {{
+    plot.append("path").datum(pathos).attr("d", line)
+      .attr("fill", "yellowgreen").attr("fill-opacity", 0.4)
+      .attr("stroke", "yellowgreen");
+  }}
+
+  if (dataRecords && dataRecords.length > 0) {{
+    let tooltip = d3.select("#tt");
+
+    for (let i = dataRecords.length - 1; i > 0; i--) {{
+      let j = Math.floor(Math.random() * (i + 1));
+      [dataRecords[i], dataRecords[j]] = [dataRecords[j], dataRecords[i]];
+    }}
+
+    plot.selectAll("circle").data(dataRecords).enter().append("circle")
+      .attr("cx", d => x(d.x)).attr("cy", d => y(d.y))
+      .attr("r", 5).attr("fill", d => colorMap[d.season] || "#999")
+      .attr("opacity", 0.4).attr("shape-rendering", "optimizeSpeed")
+      .on("mouseover", function(d) {{
+        d3.select(this).attr("r", 10).attr("opacity", 0.9);
+        tooltip.style("opacity", 1)
+          .style("background-color", colorMap[d.season] || "#999")
+          .style("color",
+            (d.season === "Winter" || d.season === "Herbst") ? "white" : "black")
+          .html(d.ts + "<br>x: " + d.xg + " g/kg<br>T: " + d.temp
+            + " °C<br>φ: " + d.phi + " %")
+          .style("left", (d3.event.pageX + 15) + "px")
+          .style("top", (d3.event.pageY - 40) + "px");
+      }})
+      .on("mouseout", function(d) {{
+        d3.select(this).attr("r", 5).attr("opacity", 0.4);
+        tooltip.style("opacity", 0);
+      }});
+
+    let legendItems = [
+      {{label: "Komfortzone", color: "#9ACD32", type: "rect"}},
+      {{label: "Frühling", color: colorMap["Frühling"], type: "circle"}},
+      {{label: "Sommer", color: colorMap["Sommer"], type: "circle"}},
+      {{label: "Herbst", color: colorMap["Herbst"], type: "circle"}},
+      {{label: "Winter", color: colorMap["Winter"], type: "circle"}}
+    ];
+    let legend = svg.append("g")
+      .attr("transform", "translate(" + (margin.left + 10) + ","
+        + (margin.top + 10) + ")");
+    legend.append("rect").attr("x", -5).attr("y", -5)
+      .attr("width", 120).attr("height", legendItems.length * 20 + 10)
+      .attr("fill", "white").attr("opacity", 0.7);
+    legendItems.forEach((item, i) => {{
+      let g = legend.append("g")
+        .attr("transform", "translate(0," + (i * 20) + ")");
+      if (item.type === "rect")
+        g.append("rect").attr("width", 14).attr("height", 14)
+          .attr("fill", item.color).attr("opacity", 0.7);
+      else
+        g.append("circle").attr("cx", 7).attr("cy", 7).attr("r", 5)
+          .attr("fill", item.color).attr("opacity", 0.7);
+      g.append("text").attr("x", 20).attr("y", 11).text(item.label)
+        .style("font-family", "Tahoma, Geneva, sans-serif")
+        .style("font-size", "12px");
+    }});
+  }}
+}})();
+</script>
+</body>
+</html>"""

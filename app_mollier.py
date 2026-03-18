@@ -1,6 +1,7 @@
-"""Streamlit app replicating the d3-mollierhx demo.html interactive Mollier h,x-diagram."""
+"""Streamlit app — Mollier h,x-diagram using D3.js (via pyedautils)."""
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 from importlib import resources
 
@@ -64,15 +65,8 @@ uploaded_file = st.sidebar.file_uploader(
     type=["csv"],
 )
 
-st.sidebar.markdown(
-    """
-    <div style="background-color: whitesmoke; padding: 10px; font-family: monospace; font-size: 12px;">
-    Use the sliders to adjust the diagram domain and comfort zone.
-    Upload a CSV with columns: <b>timestamp</b>, <b>humidity</b> [%],
-    <b>temperature</b> [°C] to overlay data points colour-coded by season.
-    </div>
-    """,
-    unsafe_allow_html=True,
+chart_height = st.sidebar.slider(
+    "Diagram height [px]", min_value=400, max_value=1200, value=700, step=50,
 )
 
 # --- Load data ---
@@ -83,29 +77,18 @@ elif use_sample:
     data_path = resources.files("pyedautils") / "data" / "mollier_sample.csv"
     data = pd.read_csv(data_path)
 
-# --- Build diagram ---
-domain_x = (x_min / 1000.0, x_max / 1000.0)
-domain_y = (y_min, y_max)
-
-fig = plot_mollier_hx(
+# --- Build & render ---
+html = plot_mollier_hx(
     data=data,
     pressure=float(pressure),
-    domain_x=domain_x,
-    domain_y=domain_y,
+    domain_x=(x_min / 1000.0, x_max / 1000.0),
+    domain_y=(y_min, y_max),
     comfort_zone={
         "temperature": (comfort_t_min, comfort_t_max),
         "rel_humidity": (comfort_phi_min / 100.0, comfort_phi_max / 100.0),
         "abs_humidity": (comfort_x_min / 1000.0, comfort_x_max / 1000.0),
     },
+    height=chart_height,
 )
 
-fig.update_layout(
-    height=700,
-    margin=dict(l=30, r=60, t=50, b=30),
-    dragmode="zoom",
-    paper_bgcolor="white",
-    plot_bgcolor="white",
-    font_color="black",
-)
-
-st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+components.html(html, height=chart_height + 10, scrolling=False)

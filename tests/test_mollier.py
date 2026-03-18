@@ -2,8 +2,6 @@ import unittest
 import math
 import numpy as np
 import pandas as pd
-from unittest.mock import patch
-
 from pyedautils._mollier import (
     C_PL,
     R_0,
@@ -25,34 +23,16 @@ from pyedautils._mollier import (
 from pyedautils.plots import plot_mollier_hx
 
 
-def _fast_get_season(date, **kwargs):
-    """Fast mock for get_season that skips ephem calculations."""
-    if isinstance(date, pd.Series):
-        return date.apply(lambda x: _fast_get_season(x))
-    month = date.month
-    if month in (3, 4, 5):
-        return "Spring"
-    elif month in (6, 7, 8):
-        return "Summer"
-    elif month in (9, 10, 11):
-        return "Fall"
-    else:
-        return "Winter"
-
-
 class TestSaturationPressure(unittest.TestCase):
     """Tests for p_sat and temperature_p_sat."""
 
     def test_p_sat_at_0C(self):
-        # At 0°C, saturation pressure ≈ 611 Pa
         self.assertAlmostEqual(p_sat(0.0), 611.0, delta=1.0)
 
     def test_p_sat_at_100C(self):
-        # At 100°C, saturation pressure ≈ 101325 Pa
         self.assertAlmostEqual(p_sat(100.0), 101325.0, delta=2000.0)
 
     def test_p_sat_negative_temperature(self):
-        # Should work below 0°C (ice region)
         result = p_sat(-10.0)
         self.assertGreater(result, 0)
         self.assertLess(result, 611.0)
@@ -61,7 +41,6 @@ class TestSaturationPressure(unittest.TestCase):
         temps = np.array([-10.0, 0.0, 20.0, 50.0])
         result = p_sat(temps)
         self.assertEqual(len(result), 4)
-        # Monotonically increasing
         self.assertTrue(np.all(np.diff(result) > 0))
 
     def test_roundtrip_temperature_p_sat(self):
@@ -83,12 +62,10 @@ class TestCoordinateFunctions(unittest.TestCase):
         self.assertAlmostEqual(enthalpy(0.01, 0), R_0 * 0.01, places=5)
 
     def test_temperature_at_x0(self):
-        # At x=0, temperature(0, y) = y
         for y in [-10, 0, 20, 40]:
             self.assertAlmostEqual(temperature(0, y), y, places=5)
 
     def test_roundtrip_get_x_y_temperature(self):
-        """get_x_y followed by temperature should return the original T."""
         p = 101325.0
         for t, phi in [(20, 0.5), (0, 0.3), (35, 0.8), (-5, 0.9)]:
             xv, yv = get_x_y(t, phi, p)
@@ -96,7 +73,6 @@ class TestCoordinateFunctions(unittest.TestCase):
             self.assertAlmostEqual(t, t_back, places=2)
 
     def test_roundtrip_get_x_y_rel_humidity(self):
-        """get_x_y followed by rel_humidity should return the original phi."""
         p = 101325.0
         for t, phi in [(20, 0.5), (10, 0.3), (30, 0.7)]:
             xv, yv = get_x_y(t, phi, p)
@@ -158,7 +134,6 @@ class TestComfortZone(unittest.TestCase):
     def test_comfort_returns_closed_polygon(self):
         polygon = create_comfort((20, 26), (0.30, 0.65), (0, 0.0115), 101325.0)
         self.assertGreater(len(polygon), 3)
-        # First and last point should be the same (closed)
         self.assertAlmostEqual(polygon[0][0], polygon[-1][0], places=8)
         self.assertAlmostEqual(polygon[0][1], polygon[-1][1], places=8)
 
@@ -174,42 +149,33 @@ class TestComfortZone(unittest.TestCase):
 
 
 class TestPlotMollierHx(unittest.TestCase):
-    """Tests for plot_mollier_hx."""
+    """Tests for plot_mollier_hx (D3 HTML output)."""
 
     def test_basic_no_data(self):
-        import plotly.graph_objects as go
-        fig = plot_mollier_hx()
-        self.assertIsInstance(fig, go.Figure)
-        # Should have traces (iso-lines + comfort zone)
-        self.assertGreater(len(fig.data), 5)
+        html = plot_mollier_hx()
+        self.assertIsInstance(html, str)
+        self.assertIn("d3.v5.min.js", html)
+        self.assertIn("drawHXCoordinates", html)
+        self.assertIn("createComfort", html)
 
-    def test_title(self):
-        fig = plot_mollier_hx(title="Custom Title")
-        self.assertIn("Custom Title", fig.layout.title.text)
+    def test_title_not_in_d3(self):
+        # D3 version doesn't have a title parameter, just check it returns HTML
+        html = plot_mollier_hx()
+        self.assertIn("<html>", html)
 
     def test_custom_pressure(self):
-        fig = plot_mollier_hx(pressure=95000.0)
-        self.assertGreater(len(fig.data), 5)
+        html = plot_mollier_hx(pressure=95000.0)
+        self.assertIn("95000", html)
 
     def test_custom_comfort_zone(self):
-        fig = plot_mollier_hx(comfort_zone={
+        html = plot_mollier_hx(comfort_zone={
             "temperature": (18, 24),
             "rel_humidity": (0.20, 0.70),
             "abs_humidity": (0, 0.012),
         })
-        self.assertGreater(len(fig.data), 5)
+        self.assertIn("[18, 24]", html)
 
-    def test_custom_colors(self):
-        fig = plot_mollier_hx(colors={"temperature": "red"})
-        self.assertGreater(len(fig.data), 5)
-
-    def test_show_isolines_disabled(self):
-        fig_all = plot_mollier_hx()
-        fig_no_t = plot_mollier_hx(show_isolines={"temperature": False})
-        self.assertLess(len(fig_no_t.data), len(fig_all.data))
-
-    @patch('pyedautils.season.get_season', side_effect=_fast_get_season)
-    def test_with_synthetic_data(self, _mock):
+    def test_with_synthetic_data(self):
         np.random.seed(42)
         n = 100
         timestamps = pd.date_range("2023-01-01", periods=n, freq="h")
@@ -218,27 +184,28 @@ class TestPlotMollierHx(unittest.TestCase):
             "humidity": np.random.uniform(30, 70, n),
             "temperature": np.random.uniform(15, 30, n),
         })
-        fig = plot_mollier_hx(data=df)
-        # Should have iso-line traces plus marker traces
-        has_markers = any(
-            t.mode == "markers" for t in fig.data if hasattr(t, "mode")
-        )
-        self.assertTrue(has_markers)
+        html = plot_mollier_hx(data=df)
+        self.assertIn("dataRecords", html)
+        # Should contain season labels in German
+        self.assertIn("Winter", html)
 
     def test_empty_dataframe(self):
         df = pd.DataFrame(columns=["timestamp", "humidity", "temperature"])
-        fig = plot_mollier_hx(data=df)
-        self.assertGreater(len(fig.data), 5)
+        html = plot_mollier_hx(data=df)
+        self.assertIn("dataRecords = null", html)
 
-    @patch('pyedautils.season.get_season', side_effect=_fast_get_season)
-    def test_data_with_nan(self, _mock):
+    def test_data_with_nan(self):
         df = pd.DataFrame({
             "timestamp": pd.date_range("2023-06-01", periods=10, freq="h"),
             "humidity": [50, np.nan, 60, 55, 50, np.nan, 45, 50, 55, 60],
             "temperature": [22, 23, np.nan, 24, 25, 22, 23, 24, 25, 26],
         })
-        fig = plot_mollier_hx(data=df)
-        self.assertGreater(len(fig.data), 5)
+        html = plot_mollier_hx(data=df)
+        self.assertIsInstance(html, str)
+
+    def test_custom_height(self):
+        html = plot_mollier_hx(height=500)
+        self.assertIn("500", html)
 
 
 if __name__ == '__main__':
