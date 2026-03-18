@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from unittest.mock import patch
-from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_daily_profiles_decomposed, plot_heatmap_median_weeks
+from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_daily_profiles_decomposed, plot_heatmap_median_weeks, plot_heatmap_calendar
 
 
 def _load_local_data():
@@ -256,6 +256,43 @@ class TestPlotHeatmapMedianWeeks(unittest.TestCase):
         fig = plot_heatmap_median_weeks(self.df, colorscale="Viridis")
         # Plotly expands named colorscales to tuples; check first entry
         self.assertIsNotNone(fig.data[0].colorscale)
+
+
+class TestPlotHeatmapCalendar(unittest.TestCase):
+    """Tests for plot_heatmap_calendar."""
+
+    @classmethod
+    def setUpClass(cls):
+        timestamps = pd.date_range(start='2023-01-01', end='2023-12-31 23:00', freq='h')
+        np.random.seed(42)
+        values = np.random.rand(len(timestamps)) * 100
+        cls.df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+
+    def test_basic_calendar(self):
+        fig = plot_heatmap_calendar(self.df)
+        self.assertEqual(len(fig.data), 1)  # 1 year = 1 heatmap
+
+    def test_trace_is_heatmap(self):
+        fig = plot_heatmap_calendar(self.df)
+        self.assertEqual(fig.data[0].type, "heatmap")
+
+    def test_custom_title(self):
+        fig = plot_heatmap_calendar(self.df, title="My Calendar")
+        self.assertIn("My Calendar", fig.layout.title.text)
+
+    def test_z_shape(self):
+        fig = plot_heatmap_calendar(self.df)
+        # 7 weekdays x 53 possible weeks
+        self.assertEqual(len(fig.data[0].z), 7)
+        self.assertEqual(len(fig.data[0].z[0]), 54)
+
+    def test_multi_year(self):
+        timestamps = pd.date_range(start='2022-01-01', end='2023-12-31 23:00', freq='h')
+        np.random.seed(42)
+        values = np.random.rand(len(timestamps)) * 100
+        df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+        fig = plot_heatmap_calendar(df)
+        self.assertEqual(len(fig.data), 2)  # 2 years = 2 heatmaps
 
 
 if __name__ == '__main__':

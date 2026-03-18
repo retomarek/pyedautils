@@ -20,6 +20,7 @@ chapters:
         sections:
           - file: examples/daily_profiles
           - file: examples/heatmap_median_weeks
+          - file: examples/heatmap_calendar
           - file: examples/mollier_hx
       - file: examples/season
       - file: examples/meteo_swiss
