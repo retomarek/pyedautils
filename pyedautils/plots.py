@@ -282,11 +282,10 @@ def plot_mollier_hx(
 
 <script src="https://d3js.org/d3.v5.min.js"></script>
 <script>
+(function() {{
 {js["mollier_functions"]}
 {js["coordinate_generator"]}
 {js["draw_comfort"]}
-
-(function() {{
   let p = {pressure};
   let domainX = {domain_x_js};
   let domainY = {domain_y_js};
