@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from unittest.mock import patch
-from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_daily_profiles_decomposed, plot_heatmap_median_weeks, plot_heatmap_calendar
+from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_heatmap_median_weeks, plot_heatmap_calendar
 
 
 def _load_local_data():
@@ -109,53 +109,6 @@ class TestPlotDailyProfilesOverviewEdgeCases(unittest.TestCase):
         fig = plot_daily_profiles_overview(df)
         self.assertGreater(len(fig.data), 0)
 
-
-class TestPlotDailyProfilesDecomposed(unittest.TestCase):
-    """Tests for plot_daily_profiles_decomposed."""
-
-    @classmethod
-    def setUpClass(cls):
-        timestamps = pd.date_range(start='2023-01-01', end='2023-12-31 23:00', freq='h')
-        np.random.seed(42)
-        values = np.random.rand(len(timestamps)) * 100
-        cls.df = pd.DataFrame({'timestamp': timestamps, 'value': values})
-        cls.fig = plot_daily_profiles_decomposed(cls.df)
-
-    def test_basic_decomposed(self):
-        self.assertEqual(len(self.fig.data), 7)
-
-    def test_decomposed_trace_names(self):
-        expected_days = ["Monday", "Tuesday", "Wednesday", "Thursday",
-                         "Friday", "Saturday", "Sunday"]
-        trace_names = [t.name for t in self.fig.data]
-        self.assertEqual(trace_names, expected_days)
-
-    def test_custom_title(self):
-        fig = plot_daily_profiles_decomposed(self.df, title="Custom Decomposed")
-        self.assertIn("Custom Decomposed", fig.layout.title.text)
-
-    def test_custom_ylab(self):
-        fig = plot_daily_profiles_decomposed(self.df, ylab="Power [W]")
-        self.assertEqual(fig.layout.yaxis.title.text, "Power [W]")
-
-    def test_custom_timezone(self):
-        fig = plot_daily_profiles_decomposed(self.df, loc_time_zone="Europe/Zurich")
-        self.assertEqual(len(fig.data), 7)
-
-    def test_custom_k_and_digits(self):
-        fig = plot_daily_profiles_decomposed(self.df, k=336, digits=2)
-        self.assertEqual(len(fig.data), 7)
-
-    def test_x_values_are_hours(self):
-        for trace in self.fig.data:
-            x_vals = trace.x
-            self.assertGreaterEqual(min(x_vals), 0)
-            self.assertLessEqual(max(x_vals), 23.75)
-
-    def test_decomposed_with_synthetic_data(self):
-        df = _make_synthetic_data(n_days=30)
-        fig = plot_daily_profiles_decomposed(df)
-        self.assertEqual(len(fig.data), 7)
 
 
 class TestPlotDailyProfiles(unittest.TestCase):

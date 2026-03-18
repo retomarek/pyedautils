@@ -365,23 +365,6 @@ display:none;z-index:9999;"></div>
     return fig
 
 
-def plot_daily_profiles_decomposed(
-    data: pd.DataFrame,
-    loc_time_zone: str = "UTC",
-    title: str = "Daily Profiles - Decomposed",
-    ylab: str = "delta Energy Consumption",
-    k: int = 672,
-    digits: int = 1,
-) -> go.Figure:
-    """Convenience wrapper for ``plot_daily_profiles(method="decomposed")``.
-
-    .. deprecated:: Use :func:`plot_daily_profiles` with ``method="decomposed"`` instead.
-    """
-    return plot_daily_profiles(
-        data, method="decomposed", loc_time_zone=loc_time_zone,
-        title=title, ylab=ylab, k=k, digits=digits,
-    )
-
 
 def plot_heatmap_median_weeks(
     data: pd.DataFrame,
