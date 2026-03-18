@@ -19,7 +19,7 @@ pip install -e .
 
 ## Requirements
 
-- Python >= 3.9
+- Python >= 3.10
 - Key dependencies: `ephem`, `pandas`, `geopy`, `requests`, `pgeocode`, `plotly`
 
 ## Running tests
@@ -31,7 +31,7 @@ pytest
 ## Building the documentation locally
 
 ```bash
-pip install jupyter-book sphinx-autodoc2
+pip install "jupyter-book<2" sphinx-autodoc2
 jupyter-book build docs/
 ```
 
