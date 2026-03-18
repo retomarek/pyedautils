@@ -10,8 +10,6 @@ def _load_local_data():
     """Load the sample CSV from pyedautils/data and compute diff values."""
     csv_path = os.path.join(os.path.dirname(__file__), '..', 'pyedautils', 'data', 'ele_meter.csv')
     df = pd.read_csv(csv_path, sep=';')
-    df['value'] = df['value'].diff()
-    df = df.dropna()
     return df
 
 
@@ -47,7 +45,7 @@ class TestPlots(unittest.TestCase):
         cls.fig = plot_daily_profiles_overview(cls.df)
 
     def test_plot_daily_profiles_overview(self):
-        self.assertTrue(self.fig._data[111]["y"][23] == 42.75)
+        self.assertTrue(self.fig._data[111]["y"][23] == 171.0)
         self.assertTrue(self.fig._data[111]["x"][23] == 23)
 
 

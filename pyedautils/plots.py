@@ -113,13 +113,13 @@ def plot_daily_profiles_decomposed(
     df.columns = ["timestamp", "value"]
     df = df.set_index("timestamp")
     df.index = pd.to_datetime(df.index)
-    df = df.tz_localize(tz="UTC")
-    df = df.tz_convert(tz=loc_time_zone)
+    df = df.tz_localize(tz=loc_time_zone, ambiguous=True, nonexistent="shift_forward")
 
     # Detrend
-    roll_mean = df["value"].rolling(window=k, min_periods=1).mean()
+    roll_mean = df["value"].rolling(window=k, center=True).mean()
     df["trend"] = roll_mean
     df["valueDetrended"] = df["value"] - roll_mean
+    df = df.dropna(subset=["valueDetrended"])
 
     # Seasonal component
     df["weekday"] = df.index.dayofweek
@@ -128,8 +128,13 @@ def plot_daily_profiles_decomposed(
     seasonal = df.groupby(["weekday", "dayhour", "dayminute"])["valueDetrended"].mean().reset_index()
 
     final_data = seasonal.copy()
-    min_value = final_data["valueDetrended"].min()
-    final_data["value"] = final_data["valueDetrended"] - min_value
+    # Per-weekday: subtract value at midnight (hour 0, minute 0) so each day starts at 0
+    start_values = final_data.loc[
+        (final_data["dayhour"] == 0) & (final_data["dayminute"] == 0),
+        ["weekday", "valueDetrended"],
+    ].rename(columns={"valueDetrended": "valueStart"})
+    final_data = final_data.merge(start_values, on="weekday")
+    final_data["value"] = final_data["valueDetrended"] - final_data["valueStart"]
 
     # Prepare plot data
     df_plot = final_data.copy()
@@ -142,11 +147,17 @@ def plot_daily_profiles_decomposed(
 
     fig = make_subplots(rows=1, cols=1)
 
-    for day in weekdays:
+    import plotly.express as px
+    viridis_colors = px.colors.sample_colorscale(
+        "Viridis", [i / max(len(weekdays) - 1, 1) for i in range(len(weekdays))]
+    )
+
+    for i, day in enumerate(weekdays):
         subset = df_plot[df_plot["weekday"] == day]
         fig.add_trace(go.Scatter(
             x=subset["time"], y=subset["value"],
             mode="lines", name=str(day),
+            line=dict(color=viridis_colors[i]),
         ), row=1, col=1)
 
     fig.update_layout(
