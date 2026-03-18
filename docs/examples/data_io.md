@@ -1,4 +1,4 @@
-# data_io examples
+# data_io
 
 See {doc}`../api/data_io` for the full API reference.
 

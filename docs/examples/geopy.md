@@ -1,4 +1,4 @@
-# geopy examples
+# geopy
 
 See {doc}`../api/geopy` for the full API reference.
 

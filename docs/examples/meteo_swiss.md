@@ -1,4 +1,4 @@
-# meteo_swiss examples
+# meteo_swiss
 
 See {doc}`../api/meteo_swiss` for the full API reference.
 

@@ -1,4 +1,4 @@
-# season examples
+# season
 
 See {doc}`../api/season` for the full API reference.
 
