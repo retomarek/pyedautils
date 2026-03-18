@@ -19,17 +19,17 @@ from pyedautils._plot_utils import (
 
 DEFAULT_MOLLIER_COLORS = {
     "temperature": "#63c1ff",
-    "density": "grey",
-    "rel_humidity": "green",
-    "enthalpy": "#e3362d",
-    "comfort": "rgba(0,0,255,0.2)",
+    "density": "#888888",
+    "rel_humidity": "#555555",
+    "enthalpy": "#CCCCCC",
+    "comfort": "rgba(154,205,50,0.4)",
 }
 
 DEFAULT_SEASON_COLORS = {
-    "Winter": "lightblue",
-    "Spring": "lightgreen",
-    "Summer": "orange",
-    "Fall": "brown",
+    "Winter": "#365c8d",
+    "Spring": "#2db27d",
+    "Summer": "#febc2b",
+    "Fall": "#824b04",
 }
 
 
@@ -210,7 +210,24 @@ def _add_iso_line(fig, xs, ys, color, width=1):
     ))
 
 
-def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure):
+def _phi_label_pos(phi_val, phi_threshold, domain_x, domain_y, pressure):
+    """Compute label position for a relative-humidity iso-line."""
+    from pyedautils._mollier import get_x_y, x_phiy
+
+    dim_x = domain_x[1] - domain_x[0]
+    dim_y = domain_y[1] - domain_y[0]
+    label_y = domain_y[1] - 0.03 * dim_y
+
+    if phi_val < phi_threshold:
+        return x_phiy(phi_val, label_y, pressure), label_y
+    lx = domain_x[1] - 0.1 * dim_x
+    t = _find_t_for_phi_at_x(phi_val, lx, pressure)
+    _, ly = get_x_y(t, phi_val, pressure)
+    return lx, ly
+
+
+def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure,
+                      annotations):
     """Draw relative-humidity iso-lines and the saturation cover."""
     from pyedautils._mollier import get_x_y, rel_humidity as m_rel_humidity
 
@@ -225,6 +242,12 @@ def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressur
             ) > corner_phi[1]):
         phi_max = 1.0
     phi_ticks = _nice_ticks(min(corner_phi), phi_max, 10)
+
+    try:
+        phi_threshold = m_rel_humidity(
+            domain_x[1] - 0.1 * dim_x, domain_y[1] - 0.03 * dim_y, pressure)
+    except (ValueError, RuntimeError, ZeroDivisionError):
+        phi_threshold = 1.0
 
     phi_sat_xs, phi_sat_ys = [], []
     for phi_val in phi_ticks:
@@ -241,6 +264,8 @@ def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressur
             _add_iso_line(fig, xs, ys, c["rel_humidity"], width=1.5)
             if phi_val == phi_ticks[-1]:
                 phi_sat_xs, phi_sat_ys = list(xs), list(ys)
+            _add_phi_label(annotations, phi_val, phi_threshold, c,
+                           domain_x, domain_y, pressure)
 
     # Saturation cover
     if phi_sat_xs:
@@ -260,19 +285,80 @@ def _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressur
         ))
 
 
+def _add_phi_label(annotations, phi_val, phi_threshold, c, domain_x, domain_y, pressure):
+    """Add a single relative-humidity label annotation."""
+    try:
+        lx, ly = _phi_label_pos(phi_val, phi_threshold, domain_x, domain_y, pressure)
+        if domain_x[0] <= lx <= domain_x[1] and domain_y[0] <= ly <= domain_y[1]:
+            annotations.append(dict(
+                x=lx, y=ly, text=f"{phi_val * 100:.0f} %", showarrow=False,
+                font=dict(size=10, color=c["rel_humidity"]),
+                bgcolor="rgba(255,255,255,0.7)", borderpad=1,
+            ))
+    except (ValueError, RuntimeError, ZeroDivisionError):
+        pass
+
+
+def _find_t_for_phi_at_x(phi, x_val, pressure):
+    """Find temperature where get_x_y(t, phi, p) produces x ≈ x_val."""
+    from pyedautils._mollier import get_x_y
+    # Simple bisection
+    t_lo, t_hi = -40.0, 80.0
+    for _ in range(60):
+        t_mid = (t_lo + t_hi) / 2.0
+        xv, _ = get_x_y(t_mid, phi, pressure)
+        if xv < x_val:
+            t_lo = t_mid
+        else:
+            t_hi = t_mid
+    return (t_lo + t_hi) / 2.0
+
+
+def _add_enthalpy_isolines(fig, c, corners, domain_x, domain_y, pressure, annotations):
+    """Draw enthalpy iso-lines with labels."""
+    from pyedautils._mollier import enthalpy as m_enthalpy, x_hy, y_hx
+
+    dim_x = domain_x[1] - domain_x[0]
+    corner_h = [m_enthalpy(cx, cy) for cx, cy in corners]
+    h_ticks = _nice_ticks(min(corner_h), max(corner_h), 20)
+    h_threshold = m_enthalpy(domain_x[1] - 0.03 * dim_x, domain_y[0])
+
+    for h_val in h_ticks:
+        x0, y0 = domain_x[0], y_hx(h_val, domain_x[0])
+        x1, y1 = x_hy(h_val, domain_y[0]), domain_y[0]
+        if y0 > domain_y[1]:
+            x0, y0 = x_hy(h_val, domain_y[1]), domain_y[1]
+        if x1 > domain_x[1]:
+            x1, y1 = domain_x[1], y_hx(h_val, domain_x[1])
+        fig.add_trace(go.Scatter(
+            x=[x0, x1], y=[y0, y1],
+            mode="lines", line=dict(color=c["enthalpy"], width=1),
+            showlegend=False, hoverinfo="skip",
+        ))
+        lx = x_hy(h_val, domain_y[0]) if h_val < h_threshold else domain_x[1] - 0.03 * dim_x
+        ly = domain_y[0] if h_val < h_threshold else y_hx(h_val, lx)
+        if domain_x[0] <= lx <= domain_x[1] and domain_y[0] <= ly <= domain_y[1]:
+            annotations.append(dict(
+                x=lx, y=ly, text=f"{h_val:.0f}", showarrow=False,
+                font=dict(size=10, color=c["enthalpy"]),
+                bgcolor="rgba(255,255,255,0.7)", borderpad=1,
+            ))
+
+
 def _add_mollier_isolines(fig, show, c, domain_x, domain_y, pressure, num_points):
-    """Draw iso-lines (temperature, density, humidity, enthalpy) onto *fig*."""
+    """Draw iso-lines (temperature, density, humidity, enthalpy) onto *fig*.
+
+    Returns a list of annotation dicts for iso-line labels.
+    """
     from pyedautils._mollier import (
         density as m_density,
-        enthalpy as m_enthalpy,
         get_x_y_tx,
         temperature as m_temperature,
-        x_hy,
-        y_hx,
         y_rhox,
     )
 
     dx = (domain_x[1] - domain_x[0]) / num_points
+    dim_x = domain_x[1] - domain_x[0]
 
     corners = [
         (domain_x[0], domain_y[0]), (domain_x[1], domain_y[0]),
@@ -282,6 +368,8 @@ def _add_mollier_isolines(fig, show, c, domain_x, domain_y, pressure, num_points
     domain_t = (min(corner_t), max(corner_t))
     dt = (domain_t[1] - domain_t[0]) / num_points
 
+    annotations = []
+
     if show["temperature"]:
         for t_val in _nice_ticks(domain_t[0], domain_t[1], 40):
             xs, ys = _sweep_x_range(domain_x, dx,
@@ -290,23 +378,41 @@ def _add_mollier_isolines(fig, show, c, domain_x, domain_y, pressure, num_points
 
     if show["density"]:
         corner_rho = [m_density(cx, cy, pressure) for cx, cy in corners]
+        label_x = domain_x[0] + 0.03 * dim_x
         for rho_val in _nice_ticks(min(corner_rho), max(corner_rho), 8):
             xs, ys = _sweep_x_range(domain_x, dx,
                                     lambda xv, r=rho_val: y_rhox(r, xv, pressure))
             _add_iso_line(fig, xs, ys, c["density"])
-
-    if show["rel_humidity"]:
-        _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure)
+            ly = y_rhox(rho_val, label_x, pressure)
+            if domain_y[0] <= ly <= domain_y[1]:
+                annotations.append(dict(
+                    x=label_x, y=ly, text=f"{rho_val:.2f}", showarrow=False,
+                    font=dict(size=10, color=c["density"]),
+                    bgcolor="rgba(255,255,255,0.7)", borderpad=1,
+                ))
 
     if show["enthalpy"]:
-        corner_h = [m_enthalpy(cx, cy) for cx, cy in corners]
-        for h_val in _nice_ticks(min(corner_h), max(corner_h), 20):
-            fig.add_trace(go.Scatter(
-                x=[domain_x[0], x_hy(h_val, domain_y[0])],
-                y=[y_hx(h_val, domain_x[0]), domain_y[0]],
-                mode="lines", line=dict(color=c["enthalpy"], width=1),
-                showlegend=False, hoverinfo="skip",
-            ))
+        _add_enthalpy_isolines(fig, c, corners, domain_x, domain_y, pressure, annotations)
+
+    if show["rel_humidity"]:
+        _add_phi_isolines(fig, c, corners, domain_x, domain_y, domain_t, dt, pressure,
+                          annotations)
+
+    # Unit annotations on right side
+    annotations.append(dict(
+        x=domain_x[1], y=(domain_y[0] + domain_y[1]) / 2,
+        text="enthalpy: [h] = kJ/kg", showarrow=False, textangle=-90,
+        font=dict(size=10, color=c["enthalpy"]),
+        xanchor="left", xshift=10,
+    ))
+    annotations.append(dict(
+        x=domain_x[1], y=(domain_y[0] + domain_y[1]) / 2,
+        text="density: [ρ] = kg/m³", showarrow=False, textangle=-90,
+        font=dict(size=10, color=c["density"]),
+        xanchor="left", xshift=25,
+    ))
+
+    return annotations
 
 
 def _add_mollier_data(fig, data, pressure):
@@ -329,17 +435,32 @@ def _add_mollier_data(fig, data, pressure):
     df["y_coord"] = y_arr
     df["season"] = get_season(df["timestamp"])
 
+    from pyedautils._mollier import (
+        rel_humidity as m_rel_humidity,
+        temperature as m_temperature,
+    )
+
+    df["hover"] = [
+        f"{ts.strftime('%Y-%m-%d %H:%M')}<br>"
+        f"x: {xv * 1000:.2f} g/kg<br>"
+        f"T: {m_temperature(xv, yv):.2f} °C<br>"
+        f"φ: {m_rel_humidity(xv, yv, pressure) * 100:.2f} %"
+        for ts, xv, yv in zip(df["timestamp"], df["x_coord"], df["y_coord"])
+    ]
+
     for season_name in df["season"].unique():
         subset = df[df["season"] == season_name]
         fig.add_trace(go.Scatter(
             x=subset["x_coord"], y=subset["y_coord"],
             mode="markers",
             marker=dict(
-                size=4,
+                size=6,
                 color=DEFAULT_SEASON_COLORS.get(season_name, "grey"),
-                opacity=0.6,
+                opacity=0.4,
             ),
             name=season_name,
+            text=subset["hover"],
+            hoverinfo="text",
         ))
 
 
@@ -392,7 +513,8 @@ def plot_mollier_hx(
     fig = go.Figure()
 
     # Iso-lines
-    _add_mollier_isolines(fig, show, c, domain_x, domain_y, pressure, num_points)
+    iso_annotations = _add_mollier_isolines(
+        fig, show, c, domain_x, domain_y, pressure, num_points)
 
     # Comfort zone
     cz = comfort_zone or {}
@@ -407,7 +529,7 @@ def plot_mollier_hx(
             x=[pt[0] for pt in polygon],
             y=[pt[1] for pt in polygon],
             mode="lines", fill="toself", fillcolor=c["comfort"],
-            line=dict(color="black", width=1),
+            line=dict(color="yellowgreen", width=1),
             showlegend=False, name="Comfort Zone",
         ))
 
@@ -422,13 +544,25 @@ def plot_mollier_hx(
         title_font=dict(size=20),
         title_x=0.5,
         template="plotly_white",
-        xaxis=dict(
-            title="Absolute Humidity [g/kg]",
-            range=domain_x,
-            tickvals=x_tick_vals.tolist(),
-            ticktext=[f"{v * 1000:.0f}" for v in x_tick_vals],
-        ),
-        yaxis=dict(title="Temperature [°C]", range=domain_y),
+        annotations=iso_annotations,
+    )
+
+    # Axes — set after layout to ensure they override the template
+    fig.update_xaxes(
+        title=dict(text="Absolute Humidity [g/kg]", font=dict(color="black", size=14)),
+        range=list(domain_x),
+        tickvals=x_tick_vals.tolist(),
+        ticktext=[f"{v * 1000:.0f}" for v in x_tick_vals],
+        tickfont=dict(color="black", size=12),
+        showline=True, linewidth=1, linecolor="black", mirror=True,
+        ticks="outside", ticklen=5, tickcolor="black",
+    )
+    fig.update_yaxes(
+        title=dict(text="Temperature [°C]", font=dict(color="#63c1ff", size=14)),
+        range=list(domain_y),
+        tickfont=dict(color="#63c1ff", size=12),
+        showline=True, linewidth=1, linecolor="black", mirror=True,
+        ticks="outside", ticklen=5, tickcolor="#63c1ff",
     )
 
     return fig
