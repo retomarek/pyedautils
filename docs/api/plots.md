@@ -52,16 +52,17 @@ See {doc}`../examples/daily_profiles` for interactive versions of these plots.
 
 ### Mollier h,x-Diagram
 
-Creates a psychrometric chart (Mollier h,x-diagram) with iso-lines for temperature,
-enthalpy, relative humidity and density, a comfort zone, and optional measured data
-points colour-coded by season:
+Creates a psychrometric chart (Mollier h,x-diagram) using D3.js with iso-lines for
+temperature, enthalpy, relative humidity and density, a comfort zone, and optional
+measured data points colour-coded by season. Returns a self-contained HTML string:
 
 ```python
 from pyedautils.plots import plot_mollier_hx
+from IPython.display import HTML
 
 # Empty diagram with default comfort zone
-fig = plot_mollier_hx(title="Mollier h,x-Diagram")
-fig.show()
+html = plot_mollier_hx()
+HTML(html)
 ```
 
 With measured data:
@@ -73,14 +74,14 @@ from importlib import resources
 data_path = resources.files("pyedautils") / "data" / "mollier_sample.csv"
 df = pd.read_csv(data_path)
 
-fig = plot_mollier_hx(data=df, title="Indoor Climate Measurements")
-fig.show()
+html = plot_mollier_hx(data=df)
+HTML(html)
 ```
 
 Custom comfort zone and pressure:
 
 ```python
-fig = plot_mollier_hx(
+html = plot_mollier_hx(
     pressure=95000.0,
     comfort_zone={
         "temperature": (18, 24),
@@ -88,8 +89,10 @@ fig = plot_mollier_hx(
         "abs_humidity": (0, 0.012),
     },
 )
-fig.show()
+HTML(html)
 ```
+
+In Streamlit, use `streamlit.components.v1.html(html)` to render.
 
 See {doc}`../examples/mollier_hx` for interactive examples.
 
