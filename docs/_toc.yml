@@ -9,8 +9,14 @@ chapters:
       - file: api/data_io
       - file: api/geopy
       - file: api/plots
-        sections:
-          - file: examples/daily_profiles
-          - file: examples/mollier_hx
       - file: api/season
       - file: api/meteo_swiss
+
+  - file: examples/index
+    sections:
+      - file: examples/data_io
+      - file: examples/geopy
+      - file: examples/season
+      - file: examples/meteo_swiss
+      - file: examples/daily_profiles
+      - file: examples/mollier_hx

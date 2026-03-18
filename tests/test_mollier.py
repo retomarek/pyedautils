@@ -182,10 +182,10 @@ class TestPlotMollierHx(unittest.TestCase):
         self.assertIn("drawHXCoordinates", html)
         self.assertIn("createComfort", html)
 
-    def test_title_not_in_d3(self):
-        # D3 version doesn't have a title parameter, just check it returns HTML
+    def test_returns_div_fragment(self):
         html = plot_mollier_hx()
-        self.assertIn("<html>", html)
+        self.assertIn("<div id=", html)
+        self.assertNotIn("<html>", html)
 
     def test_custom_pressure(self):
         html = plot_mollier_hx(pressure=95000.0)

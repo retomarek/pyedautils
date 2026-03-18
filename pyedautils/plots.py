@@ -262,26 +262,21 @@ def plot_mollier_hx(
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
 
+    import uuid
+    uid = uuid.uuid4().hex[:8]
+    diagram_id = f"mollier_{uid}"
+    tooltip_id = f"tt_{uid}"
+    plot_id = f"plot_{uid}"
+    clip_id = f"clip_{uid}"
+
     season_colors = json.dumps(
         {v: DEFAULT_SEASON_COLORS[k] for k, v in _SEASON_LABELS_DE.items()})
 
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<style>
-  #diagram {{ width: 100%; background: white; }}
-  .tooltip {{
-    position: absolute; background: rgba(255,255,255,0.9);
-    border-radius: 4px; padding: 6px 8px; pointer-events: none;
-    font-family: Tahoma, Geneva, sans-serif; font-size: 11px;
-    box-shadow: 2px 2px 6px rgba(0,0,0,0.2); opacity: 0;
-  }}
-</style>
-</head>
-<body>
-<div id="diagram"></div>
-<div class="tooltip" id="tt"></div>
-
+    return f"""<div id="{diagram_id}" style="width:100%;background:white;"></div>
+<div id="{tooltip_id}" style="position:absolute;background:rgba(255,255,255,0.9);\
+border-radius:4px;padding:6px 8px;pointer-events:none;\
+font-family:Tahoma,Geneva,sans-serif;font-size:11px;\
+box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 <script src="https://d3js.org/d3.v5.min.js"></script>
 <script>
 (function() {{
@@ -298,22 +293,22 @@ def plot_mollier_hx(
   let colorMap = {season_colors};
 
   let Height = {height};
-  let container = document.getElementById("diagram");
+  let container = document.getElementById("{diagram_id}");
   let Width = container.getBoundingClientRect().width || 900;
 
   let margin = {{top: 30, right: 70, bottom: 35, left: 50}};
   let width = Width - margin.left - margin.right;
   let height = Height - margin.top - margin.bottom;
 
-  let svg = d3.select("#diagram").append("svg")
+  let svg = d3.select("#{diagram_id}").append("svg")
     .attr("width", Width).attr("height", Height);
-  let bg = svg.append("g").attr("id", "theplot");
+  let bg = svg.append("g").attr("id", "{plot_id}");
   let clip = svg.append("defs").append("svg:clipPath")
-    .attr("id", "clip").append("svg:rect")
+    .attr("id", "{clip_id}").append("svg:rect")
     .attr("width", width).attr("height", height);
   let plot = svg.append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-    .attr("clip-path", "url(#clip)");
+    .attr("clip-path", "url(#{clip_id})");
 
   drawHXCoordinates(bg, Width, Height, margin, domainX, domainY, p);
 
@@ -329,7 +324,7 @@ def plot_mollier_hx(
   }}
 
   if (dataRecords && dataRecords.length > 0) {{
-    let tooltip = d3.select("#tt");
+    let tooltip = d3.select("#{tooltip_id}");
 
     for (let i = dataRecords.length - 1; i > 0; i--) {{
       let j = Math.floor(Math.random() * (i + 1));
@@ -384,6 +379,4 @@ def plot_mollier_hx(
     }});
   }}
 }})();
-</script>
-</body>
-</html>"""
+</script>"""

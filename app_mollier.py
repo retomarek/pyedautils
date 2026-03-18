@@ -91,4 +91,5 @@ html = plot_mollier_hx(
     height=chart_height,
 )
 
-components.html(html, height=chart_height + 10, scrolling=False)
+full_html = f"<!DOCTYPE html><html><body style='margin:0;background:white'>{html}</body></html>"
+components.html(full_html, height=chart_height + 10, scrolling=False)
