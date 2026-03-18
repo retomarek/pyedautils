@@ -6,3 +6,4 @@ dist/
 pyedautils.egg-info/
 .coverage
 _version.py
+CLAUDE.md

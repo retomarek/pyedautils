@@ -1,7 +1,5 @@
 import unittest
 import os
-import sys
-import io
 import shutil
 import pandas as pd
 import numpy as np
@@ -95,36 +93,24 @@ class TestDataIO(unittest.TestCase):
         values = np.random.randn(10)
         df = pd.DataFrame({"Value": values}, index=dates)
         file_path = os.path.join(self.test_dir, "test.abc")
-        
-        # Redirect stdout to a StringIO object to capture the output
-        captured_output = io.StringIO()
-        sys.stdout = captured_output
-        save_data(df, file_path)
-        
-        # Reset stdout
-        sys.stdout = sys.__stdout__
-        
-        # Get the captured output
-        console_output = captured_output.getvalue().strip()
-        
-        self.assertEqual(console_output, "Saving data to: test_data/test.abc\nError: Unsupported file format")
-        
+
+        with self.assertLogs("pyedautils.data_io", level="INFO") as cm:
+            save_data(df, file_path)
+
+        log_output = "\n".join(cm.output)
+        self.assertIn("Saving data to:", log_output)
+        self.assertIn("Unsupported file format", log_output)
+
     def test_load_unsupported_format(self):
         # Test data: time series data with datetime index
         file_path = os.path.join(self.test_dir, "test.def")
-        
-        # Redirect stdout to a StringIO object to capture the output
-        captured_output = io.StringIO()
-        sys.stdout = captured_output
-        df = load_data(file_path)
-        
-        # Reset stdout
-        sys.stdout = sys.__stdout__
-        
-        # Get the captured output
-        console_output = captured_output.getvalue().strip()
-        
-        self.assertEqual(console_output, "Loading data from: test_data/test.def\nError: Unsupported file format")
+
+        with self.assertLogs("pyedautils.data_io", level="INFO") as cm:
+            load_data(file_path)
+
+        log_output = "\n".join(cm.output)
+        self.assertIn("Loading data from:", log_output)
+        self.assertIn("Unsupported file format", log_output)
         
         
 if __name__ == "__main__":

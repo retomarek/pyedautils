@@ -26,6 +26,11 @@ class TestGeopyhelpers(unittest.TestCase):
             
         with self.assertRaises(TypeError):
             find_nearest_station(coord[0], coord[1], altitude) # no sensor defined
-        
+
+    def test_invalid_sensor_type(self):
+        """Passing an invalid sensor type should raise ValueError."""
+        with self.assertRaises(ValueError):
+            find_nearest_station(47.0, 8.3, 450, sensor="windspeed")
+
 if __name__ == '__main__':
     unittest.main() # pragma: no cover
