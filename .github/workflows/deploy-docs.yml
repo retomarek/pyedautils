@@ -29,7 +29,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install jupyter-book sphinx-autodoc2
+          pip install "jupyter-book<2" sphinx-autodoc2
           pip install -e .
 
       - name: Build Jupyter Book

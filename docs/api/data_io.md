@@ -1,4 +1,6 @@
-# data_io
+# API Reference
+
+## data_io
 
 Save and load data in multiple formats (CSV, pickle, compressed pickle, JSON) with automatic directory creation, elapsed-time logging, and file-size reporting.
 

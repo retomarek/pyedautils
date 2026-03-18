@@ -7,3 +7,4 @@ pyedautils.egg-info/
 .coverage
 _version.py
 CLAUDE.md
+docs/_build/
