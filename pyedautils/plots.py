@@ -162,6 +162,121 @@ def plot_daily_profiles_decomposed(
     return fig
 
 
+def plot_heatmap_median_weeks(
+    data: pd.DataFrame,
+    title: str = "Heatmap Median per Hour by Weekday and Season",
+    ylab: str = "Energy Consumption (kWh/h)",
+    seasons: Optional[List[str]] = None,
+    colorscale: str = "Magma",
+) -> go.Figure:
+    """
+    Create a heatmap of median values per hour, grouped by weekday and season.
+
+    Each season is shown as a separate subplot column. The y-axis shows weekdays
+    (Monday at top, Sunday at bottom), the x-axis shows the hour of day (0-23),
+    and the color intensity represents the median value.
+
+    Args:
+        data: DataFrame with two columns: timestamp and value.
+        title: Plot title.
+        ylab: Colorbar title / value label.
+        seasons: Custom season names in column order.
+            Default: Spring, Summer, Fall, Winter.
+        colorscale: Plotly colorscale name. Default "Magma" (≈ viridis option B).
+
+    Returns:
+        go.Figure: Plotly figure with one heatmap subplot per season.
+    """
+    from pyedautils.season import get_season
+
+    if seasons is None:
+        seasons = DEFAULT_SEASONS
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["hour"] = df["timestamp"].dt.floor("h")
+
+    df_h = df.groupby("hour").agg({"value": "sum"}).reset_index()
+    df_h["weekday"] = df_h["hour"].dt.day_name()
+    df_h["dayhour"] = df_h["hour"].dt.hour
+    df_h["season"] = get_season(df_h["hour"])
+
+    df_median = (
+        df_h.groupby(["season", "weekday", "dayhour"])["value"]
+        .median()
+        .reset_index()
+    )
+
+    weekday_full = [
+        "Monday", "Tuesday", "Wednesday", "Thursday",
+        "Friday", "Saturday", "Sunday",
+    ]
+    weekday_abbr = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    fig = make_subplots(
+        rows=1, cols=len(seasons),
+        subplot_titles=seasons,
+        shared_yaxes=True,
+        horizontal_spacing=0.05,
+    )
+
+    # Build a full grid per season so empty cells show as blank
+    zmin = df_median["value"].min()
+    zmax = df_median["value"].max()
+
+    for col_idx, season in enumerate(seasons, start=1):
+        subset = df_median[df_median["season"] == season]
+
+        # Pivot to weekday × hour matrix
+        pivot = subset.pivot(index="weekday", columns="dayhour", values="value")
+        pivot = pivot.reindex(index=weekday_full, columns=range(24))
+
+        fig.add_trace(
+            go.Heatmap(
+                z=pivot.values,
+                x=list(range(24)),
+                y=weekday_abbr,
+                colorscale=colorscale,
+                zmin=zmin,
+                zmax=zmax,
+                showscale=(col_idx == len(seasons)),
+                colorbar=dict(title="Legend") if col_idx == len(seasons) else None,
+                hovertemplate=(
+                    "Hour: %{x}<br>%{y}<br>Median: %{z:.2f}<extra></extra>"
+                ),
+            ),
+            row=1,
+            col=col_idx,
+        )
+
+        fig.update_xaxes(
+            tickvals=[0, 6, 12, 18, 24],
+            row=1,
+            col=col_idx,
+        )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=500,
+        yaxis_title=ylab,
+        yaxis_autorange="reversed",
+    )
+    # Shared x-axis label at bottom center
+    fig.add_annotation(
+        text="Hour of day",
+        xref="paper", yref="paper",
+        x=0.5, y=-0.1,
+        showarrow=False,
+        font=dict(size=14),
+    )
+
+    return fig
+
+
 def _load_d3_js():
     """Load bundled D3.js source files for the Mollier diagram."""
     from importlib import resources as _res

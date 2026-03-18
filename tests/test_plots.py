@@ -3,7 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 from unittest.mock import patch
-from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles_decomposed
+from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles_decomposed, plot_heatmap_median_weeks
 
 
 def _load_local_data():
@@ -158,6 +158,49 @@ class TestPlotDailyProfilesDecomposed(unittest.TestCase):
         df = _make_synthetic_data(n_days=30)
         fig = plot_daily_profiles_decomposed(df)
         self.assertEqual(len(fig.data), 7)
+
+
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotHeatmapMedianWeeks(unittest.TestCase):
+    """Tests for plot_heatmap_median_weeks."""
+
+    @classmethod
+    def setUpClass(cls):
+        timestamps = pd.date_range(start='2023-01-01', end='2023-12-31 23:00', freq='h')
+        np.random.seed(42)
+        values = np.random.rand(len(timestamps)) * 100
+        cls.df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+
+    def test_basic_heatmap(self, _mock):
+        fig = plot_heatmap_median_weeks(self.df)
+        # 4 seasons = 4 heatmap traces
+        self.assertEqual(len(fig.data), 4)
+
+    def test_traces_are_heatmaps(self, _mock):
+        fig = plot_heatmap_median_weeks(self.df)
+        for trace in fig.data:
+            self.assertEqual(trace.type, "heatmap")
+
+    def test_custom_title(self, _mock):
+        fig = plot_heatmap_median_weeks(self.df, title="My Heatmap")
+        self.assertIn("My Heatmap", fig.layout.title.text)
+
+    def test_custom_seasons(self, _mock):
+        custom = ["Frühling", "Sommer", "Herbst", "Winter"]
+        fig = plot_heatmap_median_weeks(self.df, seasons=custom)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_heatmap_z_shape(self, _mock):
+        fig = plot_heatmap_median_weeks(self.df)
+        # Each heatmap: 7 weekdays x 24 hours
+        for trace in fig.data:
+            self.assertEqual(len(trace.z), 7)
+            self.assertEqual(len(trace.z[0]), 24)
+
+    def test_colorscale_param(self, _mock):
+        fig = plot_heatmap_median_weeks(self.df, colorscale="Viridis")
+        # Plotly expands named colorscales to tuples; check first entry
+        self.assertIsNotNone(fig.data[0].colorscale)
 
 
 if __name__ == '__main__':
