@@ -22,7 +22,13 @@ HEMISPHERE_SEASON_SWAP = {
     STATE_WINTER: STATE_SUMMER
 }
 
-def get_season(date, hemisphere: str = "north", labels: List[str] = ["Spring", "Summer", "Fall", "Winter"], tracking_type: str = "astronomical") -> str:
+
+def get_season(
+    date,
+    hemisphere: str = "north",
+    labels: List[str] = ["Spring", "Summer", "Fall", "Winter"],
+    tracking_type: str = "astronomical",
+) -> str:
     """
     Return the season of the given date depending on the latitude and location.
 
@@ -30,14 +36,15 @@ def get_season(date, hemisphere: str = "north", labels: List[str] = ["Spring", "
         date: datetime object or pandas Series with datetime objects
         hemisphere: "north" or "south", default is "north"
         labels: array of season names, default is ["Spring", "Summer", "Fall", "Winter"]
-        tracking_type: Type of season definition. Options are "meteorological" or "astronomical". Default is "astronomical"
-        
+        tracking_type: Type of season definition.
+            Options are "meteorological" or "astronomical". Default is "astronomical"
+
     Returns:
         A string with season name or a pandas series with strings, depending on the input
     """
     if isinstance(date, pd.Series):
         return date.apply(lambda x: get_season(x, hemisphere, labels, tracking_type))
-    
+
     if tracking_type == TYPE_ASTRONOMICAL:
         spring_start = ephem.next_equinox(str(date.year)).datetime()
         summer_start = ephem.next_solstice(str(date.year)).datetime()
@@ -48,7 +55,7 @@ def get_season(date, hemisphere: str = "north", labels: List[str] = ["Spring", "
         summer_start = datetime(date.year, 6, 1)
         autumn_start = datetime(date.year, 9, 1)
         winter_start = datetime(date.year, 12, 1)
-    
+
     if spring_start <= date < summer_start:
         season = STATE_SPRING
     elif summer_start <= date < autumn_start:
@@ -57,7 +64,7 @@ def get_season(date, hemisphere: str = "north", labels: List[str] = ["Spring", "
         season = STATE_FALL
     elif winter_start <= date or spring_start > date:
         season = STATE_WINTER
-    
+
     # Swap the season if on southern hemisphere
     if hemisphere == SOUTHERN:
         return labels[HEMISPHERE_SEASON_SWAP.get(season, season)]
