@@ -4,11 +4,11 @@
 
 ## Features
 
-- **Data I/O** -- Save and load DataFrames in CSV, pickle, compressed pickle, and JSON formats with automatic directory creation, timing, and file-size logging.
-- **Geocoding & coordinates** -- Address geocoding (Nominatim), WGS84-to-Swiss-LV95 conversion, altitude lookup via opentopodata.org and geo.admin.ch, Swiss postal code resolution, and Haversine distance calculation.
-- **Plotting** -- Plotly-based daily profile visualizations: a 4x7 subplot grid (seasons x weekdays) with median lines and quantile confidence bands, plus a decomposed seasonal profile view.
-- **Season detection** -- Determine the season for any date using astronomical (ephem-based equinox/solstice) or meteorological definitions, with support for both hemispheres and custom labels.
-- **MeteoSwiss stations** -- Find the nearest MeteoSwiss weather station matching a given sensor type within an altitude tolerance.
+- **{doc}`Data I/O <api/data_io>`** -- Save and load DataFrames in CSV, pickle, compressed pickle, and JSON formats with automatic directory creation, timing, and file-size logging.
+- **{doc}`Geocoding & coordinates <api/geopy>`** -- Address geocoding (Nominatim), WGS84-to-Swiss-LV95 conversion, altitude lookup via opentopodata.org and geo.admin.ch, Swiss postal code resolution, and Haversine distance calculation.
+- **{doc}`Plotting <api/plots>`** -- Plotly-based daily profile visualizations: a 4x7 subplot grid (seasons x weekdays) with median lines and quantile confidence bands, plus a decomposed seasonal profile view.
+- **{doc}`Season detection <api/season>`** -- Determine the season for any date using astronomical (ephem-based equinox/solstice) or meteorological definitions, with support for both hemispheres and custom labels.
+- **{doc}`MeteoSwiss stations <api/meteo_swiss>`** -- Find the nearest MeteoSwiss weather station matching a given sensor type within an altitude tolerance.
 
 ## Quick start
 

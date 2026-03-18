@@ -4,6 +4,7 @@
 title: "pyedautils"
 author: retomarek
 logo: ""
+copyright: "2026"
 
 execute:
   execute_notebooks: "auto"

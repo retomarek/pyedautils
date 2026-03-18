@@ -4,11 +4,12 @@ root: intro
 chapters:
   - file: installation
 
-  - file: api/data_io
+  - file: api/index
     sections:
+      - file: api/data_io
       - file: api/geopy
       - file: api/plots
+        sections:
+          - file: examples/daily_profiles
       - file: api/season
       - file: api/meteo_swiss
-
-  - file: examples/daily_profiles
