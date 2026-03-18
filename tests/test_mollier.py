@@ -228,6 +228,10 @@ class TestPlotMollierHx(unittest.TestCase):
         html = plot_mollier_hx(data=df)
         self.assertIsInstance(html, str)
 
+    def test_no_comfort_zone(self):
+        html = plot_mollier_hx(comfort_zone=False)
+        self.assertIn("[0,0]", html)
+
     def test_custom_height(self):
         html = plot_mollier_hx(height=500)
         self.assertIn("500", html)

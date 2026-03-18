@@ -208,7 +208,7 @@ def plot_mollier_hx(
         domain_y: Range of the y-coordinate (≈ temperature at x=0) for the y-axis.
         comfort_zone: Dict with keys "temperature", "rel_humidity", "abs_humidity",
             each a (min, max) tuple. Defaults: T=[20, 26], phi=[0.30, 0.65],
-            x=[0, 0.0115].
+            x=[0, 0.0115]. Pass ``False`` to disable the comfort zone.
         height: Diagram height in pixels. Default 700.
 
     Returns:
@@ -252,10 +252,13 @@ def plot_mollier_hx(
                 })
             data_json = json.dumps(records)
 
-    cz = comfort_zone or {}
-    comfort_t = json.dumps(list(cz.get("temperature", (20, 26))))
-    comfort_phi = json.dumps(list(cz.get("rel_humidity", (0.30, 0.65))))
-    comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
+    if comfort_zone is False:
+        comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
+    else:
+        cz = comfort_zone or {}
+        comfort_t = json.dumps(list(cz.get("temperature", (20, 26))))
+        comfort_phi = json.dumps(list(cz.get("rel_humidity", (0.30, 0.65))))
+        comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
 
@@ -266,8 +269,7 @@ def plot_mollier_hx(
 <html>
 <head>
 <style>
-  body {{ margin: 0; padding: 0; background: white; overflow: hidden; }}
-  #diagram {{ width: 100%; }}
+  #diagram {{ width: 100%; background: white; }}
   .tooltip {{
     position: absolute; background: rgba(255,255,255,0.9);
     border-radius: 4px; padding: 6px 8px; pointer-events: none;
