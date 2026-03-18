@@ -82,15 +82,12 @@ def find_nearest_station(lat: float, long: float, altitude: float, sensor: str) 
             if (float(altitude) > (stationAltitude - 150.0)) and (float(altitude) < (stationAltitude + 150.0)):
                 if sensor_keyword in sensors:
                     logger.info("Closest station for %s: %s", sensor, stationIDString)
-                    break
-                else:
-                    i += 1
-                    continue
-            else:
-                i += 1
-                continue
+                    return stationID
+            i += 1
 
-        return stationID
+        raise ValueError(
+            f"No station found for sensor '{sensor}' within 150m altitude of {altitude}m"
+        )
 
     except Exception as e:
         raise ValueError(f"Error in getting data: {e}") from e

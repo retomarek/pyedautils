@@ -39,9 +39,6 @@ def prepare_hourly_seasonal_data(
     """
     from pyedautils.season import get_season
 
-    if seasons is None:
-        seasons = DEFAULT_SEASONS
-
     df = data.copy()
     df.columns = ["timestamp", "value"]
     df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -77,11 +74,6 @@ def create_seasonal_weekday_subplots(
     Returns:
         Tuple of (figure, seasons list, weekdays list).
     """
-    if seasons is None:
-        seasons = DEFAULT_SEASONS
-    if weekdays is None:
-        weekdays = DEFAULT_WEEKDAYS
-
     fig = make_subplots(
         rows=len(seasons), cols=len(weekdays),
         subplot_titles=weekdays,

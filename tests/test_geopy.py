@@ -1,80 +1,197 @@
-# # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 
 import unittest
+from unittest.mock import patch, MagicMock
 from requests.exceptions import RequestException
-from unittest.mock import patch
-from pyedautils.geopy import get_altitude_lat_long, get_lat_long_address, get_altitude_lv95, convert_wsg84_to_lv95, GeocodingError, get_coordindates_ch_plz, get_distance_between_two_points
 
-class TestGeopyhelpers(unittest.TestCase):
-    """Tests for "geopyhelpers.py"."""
-    
-    def test_get_altitude_lat_long(self):
-        """Test get_altitude() with different lat/long pairs"""
-        self.assertIn(round(get_altitude_lat_long(47.01450, 8.30620),0), range(438,445))
-        with self.assertRaises(ValueError):
-            get_altitude_lat_long(57.01450, 8.30620)
-        with self.assertRaises(ValueError):
-            get_altitude_lat_long(100, 10)
-        with self.assertRaises(ValueError):
-            get_altitude_lat_long(-100, 10)
-        with self.assertRaises(ValueError):
-            get_altitude_lat_long(10, -200)
-        with self.assertRaises(ValueError):
-            get_altitude_lat_long(10, 200)
-    
-    @patch('requests.get')
-    def test_get_altitude_lat_long_no_internet(self, mock_get):
-        """Test get_altitude() without internet connection"""
-        mock_get.side_effect = RequestException("No internet connection")
-        with self.assertRaises(GeocodingError):
-            get_altitude_lat_long(47.01450, 8.30620)
-       
-    def test_get_lat_long_address(self):
-        """Test get_lat_long() with different addresses"""
-        self.assertEqual(round(get_lat_long_address("Technikumstrasse 21, 6048 Horw")[0], 1), 47.0)
-        self.assertEqual(round(get_lat_long_address("Technikumstrasse 21, 6048 Horw")[1], 1), 8.3)
-        with self.assertRaises(GeocodingError):
-            get_lat_long_address("Highway to hell, Horw, Switzerland")        
-        
-    def test_convert_wsg84_to_lv95(self):
-        """Test convert_wsg84_to_lv95() with different coodrinates"""
-        self.assertIn(round(convert_wsg84_to_lv95(47.01331, 8.30612)[0], 0), range(2665959,2665962))
-        self.assertIn(round(convert_wsg84_to_lv95(47.01450, 8.30620)[1], 0), range(1207300,1207450))
-        with self.assertRaises(GeocodingError):
-            convert_wsg84_to_lv95(57.01450, 8.30620)
-        with self.assertRaises(GeocodingError):
-            convert_wsg84_to_lv95(47.01450, 15.30620)
-            
-    @patch('requests.get')
-    def test_convert_wsg84_to_lv95_no_internet(self, mock_get):
-        """Test convert_wsg84_to_lv95() without internet connection"""
-        mock_get.side_effect = RequestException("No internet connection")
-        with self.assertRaises(GeocodingError):
-            convert_wsg84_to_lv95(47.01331, 8.30612)
+from pyedautils.geopy import (
+    get_altitude_lat_long,
+    get_lat_long_address,
+    get_altitude_lv95,
+    convert_wsg84_to_lv95,
+    get_coordindates_ch_plz,
+    get_distance_between_two_points,
+    GeocodingError,
+)
 
-    def test_get_altitude_lv95(self):
-        """Test get_altitude_ch_lv95() with different lat/long pairs"""
-        self.assertIn(round(get_altitude_lv95([2665949.0,1207341.8]),0), range(438,445))
-        self.assertIn(round(get_altitude_lv95(convert_wsg84_to_lv95(47.01450, 8.30620)),0), range(438,445))
 
-    @patch('requests.get')
-    def test_get_altitude_lv95_no_internet(self, mock_get):
-        """Test get_altitude_ch_lv95() without internet connection"""
-        mock_get.side_effect = RequestException("No internet connection")
+class TestConvertWsg84ToLv95(unittest.TestCase):
+
+    @patch('pyedautils.geopy.requests.get')
+    def test_valid_coordinates(self, mock_get):
+        mock_get.return_value.json.return_value = {
+            "coordinates": [2665960.0, 1207350.0]
+        }
+        result = convert_wsg84_to_lv95(47.013, 8.306)
+        self.assertEqual(result, [2665960.0, 1207350.0])
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        self.assertEqual(kwargs['timeout'], 30)
+
+    def test_lat_out_of_range(self):
         with self.assertRaises(GeocodingError):
-            get_altitude_lv95([2665949.0,1207341.8])
-        
-    def test_find_coordindates_ch_plz(self):
-        self.assertAlmostEqual(get_coordindates_ch_plz(6048)[0], 47.01, delta=0.1)
-        self.assertAlmostEqual(get_coordindates_ch_plz(6048)[1], 8.3, delta=0.1)
+            convert_wsg84_to_lv95(57.0, 8.3)
+
+    def test_long_out_of_range(self):
+        with self.assertRaises(GeocodingError):
+            convert_wsg84_to_lv95(47.0, 15.0)
+
+    @patch('pyedautils.geopy.requests.get')
+    def test_request_failure(self, mock_get):
+        mock_get.side_effect = RequestException("No internet")
+        with self.assertRaises(GeocodingError):
+            convert_wsg84_to_lv95(47.013, 8.306)
+
+
+class TestGetAltitudeLv95(unittest.TestCase):
+
+    @patch('pyedautils.geopy.requests.get')
+    def test_valid_coordinates(self, mock_get):
+        mock_get.return_value.json.return_value = {"height": "440.5"}
+        result = get_altitude_lv95([2665960.0, 1207350.0])
+        self.assertEqual(result, 440.5)
+
+    @patch('pyedautils.geopy.requests.get')
+    def test_request_failure(self, mock_get):
+        mock_get.side_effect = RequestException("No internet")
+        with self.assertRaises(GeocodingError):
+            get_altitude_lv95([2665960.0, 1207350.0])
+
+
+class TestGetAltitudeLatLong(unittest.TestCase):
+
+    @patch('pyedautils.geopy.time.sleep')
+    @patch('pyedautils.geopy.requests.get')
+    def test_valid_coordinates(self, mock_get, mock_sleep):
+        mock_get.return_value.json.return_value = {
+            "results": [{"elevation": 440.2, "location": {"lat": 47.01, "lng": 8.31}}]
+        }
+        result = get_altitude_lat_long(47.01, 8.31)
+        self.assertEqual(result, 440.2)
+        mock_sleep.assert_called_once_with(1)
+
+    @patch('pyedautils.geopy.time.sleep')
+    @patch('pyedautils.geopy.requests.get')
+    def test_elevation_none(self, mock_get, mock_sleep):
+        mock_get.return_value.json.return_value = {
+            "results": [{"elevation": None, "location": {"lat": 47.01, "lng": 8.31}}]
+        }
+        result = get_altitude_lat_long(47.01, 8.31)
+        self.assertEqual(result, 0)
+
+    def test_lat_too_high(self):
+        with self.assertRaises(ValueError):
+            get_altitude_lat_long(57.0, 8.3)
+
+    def test_lat_too_low(self):
+        with self.assertRaises(ValueError):
+            get_altitude_lat_long(10.0, 8.3)
+
+    def test_long_too_high(self):
+        with self.assertRaises(ValueError):
+            get_altitude_lat_long(47.0, 200.0)
+
+    def test_long_too_low(self):
+        with self.assertRaises(ValueError):
+            get_altitude_lat_long(47.0, -200.0)
+
+    @patch('pyedautils.geopy.requests.get')
+    def test_request_failure(self, mock_get):
+        mock_get.side_effect = RequestException("No internet")
+        with self.assertRaises(GeocodingError):
+            get_altitude_lat_long(47.01, 8.31)
+
+
+class TestGetLatLongAddress(unittest.TestCase):
+
+    @patch('pyedautils.geopy.Nominatim')
+    def test_valid_address(self, mock_nominatim_cls):
+        mock_location = MagicMock()
+        mock_location.latitude = 47.0145
+        mock_location.longitude = 8.3062
+        mock_nom = MagicMock()
+        mock_nom.geocode.return_value = mock_location
+        mock_nominatim_cls.return_value = mock_nom
+
+        result = get_lat_long_address("Technikumstrasse 21, 6048 Horw")
+        self.assertAlmostEqual(result[0], 47.0145)
+        self.assertAlmostEqual(result[1], 8.3062)
+
+    @patch('pyedautils.geopy.time.sleep')
+    @patch('pyedautils.geopy.Nominatim')
+    def test_geocode_fails_all_attempts(self, mock_nominatim_cls, mock_sleep):
+        mock_nom = MagicMock()
+        mock_nom.geocode.return_value = None
+        mock_nominatim_cls.return_value = mock_nom
+
+        with self.assertRaises(GeocodingError):
+            get_lat_long_address("Nonexistent place")
+
+    @patch('pyedautils.geopy.Nominatim')
+    def test_geocode_exception(self, mock_nominatim_cls):
+        mock_nom = MagicMock()
+        mock_nom.geocode.side_effect = Exception("Service unavailable")
+        mock_nominatim_cls.return_value = mock_nom
+
+        with self.assertRaises(GeocodingError):
+            get_lat_long_address("Some address")
+
+
+class TestGetCoordinatesChPlz(unittest.TestCase):
+
+    @patch('pyedautils.geopy.pgeocode.Nominatim')
+    def test_valid_plz(self, mock_nominatim_cls):
+        mock_data = MagicMock()
+        mock_data.latitude.astype.return_value = 47.0145
+        mock_data.longitude.astype.return_value = 8.3062
+        mock_nom = MagicMock()
+        mock_nom.query_postal_code.return_value = mock_data
+        mock_nominatim_cls.return_value = mock_nom
+
+        result = get_coordindates_ch_plz(6048)
+        self.assertEqual(result, (47.0145, 8.3062))
+
+    @patch('pyedautils.geopy.pgeocode.Nominatim')
+    def test_invalid_plz(self, mock_nominatim_cls):
+        mock_data = MagicMock()
+        mock_data.latitude.astype.return_value = float('nan')
+        mock_data.longitude.astype.return_value = float('nan')
+        mock_nom = MagicMock()
+        mock_nom.query_postal_code.return_value = mock_data
+        mock_nominatim_cls.return_value = mock_nom
+
         with self.assertRaises(GeocodingError):
             get_coordindates_ch_plz(424242)
-            
-    def test_get_distance_between_two_points(self):
-        self.assertEqual(round(get_distance_between_two_points(get_coordindates_ch_plz(6048), get_coordindates_ch_plz(3800)), 0), 50)
-        self.assertAlmostEqual(get_distance_between_two_points(get_coordindates_ch_plz(6048), get_lat_long_address("20 W 34th, New York")), 6323.833, delta = 10)
+
+    @patch('pyedautils.geopy.pgeocode.Nominatim')
+    def test_pgeocode_exception(self, mock_nominatim_cls):
+        mock_nominatim_cls.side_effect = Exception("pgeocode error")
+
         with self.assertRaises(GeocodingError):
-            get_distance_between_two_points(get_coordindates_ch_plz(5555555), get_coordindates_ch_plz(3800))
-            
+            get_coordindates_ch_plz(6048)
+
+
+class TestGetDistanceBetweenTwoPoints(unittest.TestCase):
+
+    def test_known_distance(self):
+        # Horw to Interlaken ~50km
+        coord1 = (47.0145, 8.3062)
+        coord2 = (46.6863, 7.8632)
+        result = get_distance_between_two_points(coord1, coord2)
+        self.assertAlmostEqual(result, 50.0, delta=5.0)
+
+    def test_same_point(self):
+        coord = (47.0, 8.3)
+        result = get_distance_between_two_points(coord, coord)
+        self.assertEqual(result, 0.0)
+
+    def test_long_distance(self):
+        # Zurich to New York ~6300km
+        zurich = (47.3769, 8.5417)
+        new_york = (40.7128, -74.0060)
+        result = get_distance_between_two_points(zurich, new_york)
+        self.assertAlmostEqual(result, 6324.0, delta=50.0)
+
+
 if __name__ == '__main__':
-    unittest.main() # pragma: no cover
+    unittest.main()  # pragma: no cover
