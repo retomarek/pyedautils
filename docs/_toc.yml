@@ -11,5 +11,6 @@ chapters:
       - file: api/plots
         sections:
           - file: examples/daily_profiles
+          - file: examples/mollier_hx
       - file: api/season
       - file: api/meteo_swiss
