@@ -2,9 +2,55 @@
 
 Plotly-based visualizations for energy time-series data.
 
-The main entry point is `plot_daily_profiles_overview`, which creates a 4x7 subplot grid (seasons x weekdays) showing median lines with quantile-based confidence bands. A decomposed view is also available via `plot_daily_profiles_decomposed`.
+## Examples
 
-See {doc}`../examples/daily_profiles` for interactive examples with real data.
+### Daily profiles overview
+
+Creates a 4x7 subplot grid (seasons x weekdays) with median lines and confidence bands:
+
+```python
+from pyedautils.plots import plot_daily_profiles_overview
+from pyedautils.data_io import load_data
+
+df = load_data("pyedautils/data/ele_meter.csv")
+df["value"] = df["value"].diff()
+df = df.dropna()
+
+fig = plot_daily_profiles_overview(df, title="Electricity Daily Profiles", ylab="Energy [kWh]")
+fig.show()
+```
+
+### Custom colors and confidence level
+
+```python
+fig = plot_daily_profiles_overview(
+    df,
+    title="90% Confidence Band",
+    confidence=90.0,
+    colors={"median": "red", "bounds": "orange", "fill": "rgba(255,165,0,0.2)"},
+)
+fig.show()
+```
+
+### Decomposed weekly pattern
+
+Shows the seasonal component per weekday after detrending:
+
+```python
+from pyedautils.plots import plot_daily_profiles_decomposed
+
+fig = plot_daily_profiles_decomposed(
+    df,
+    loc_time_zone="Europe/Zurich",
+    title="Decomposed Weekly Pattern",
+    ylab="delta Energy [kWh]",
+)
+fig.show()
+```
+
+See {doc}`../examples/daily_profiles` for interactive versions of these plots.
+
+## API Reference
 
 ```{eval-rst}
 .. automodule:: pyedautils.plots
