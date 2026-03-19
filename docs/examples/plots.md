@@ -8,3 +8,4 @@ Interactive plot examples:
 - {doc}`heatmap_median_weeks` — Heatmap of median values per hour by weekday and season (Plotly)
 - {doc}`heatmap_calendar` — Calendar heatmap of daily aggregated values (Plotly)
 - {doc}`mollier_hx` — Mollier h,x-diagram / psychrometric chart (D3.js)
+- {doc}`energy_signature` — Building energy signature: simple scatter and Proposed Energy Signature (Plotly)

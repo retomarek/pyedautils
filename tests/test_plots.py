@@ -3,7 +3,11 @@ import os
 import numpy as np
 import pandas as pd
 from unittest.mock import patch
-from pyedautils.plots import plot_daily_profiles_overview, plot_daily_profiles, plot_heatmap_median_weeks, plot_heatmap_calendar
+from pyedautils.plots import (
+    plot_daily_profiles_overview, plot_daily_profiles,
+    plot_heatmap_median_weeks, plot_heatmap_calendar,
+    plot_energy_signature, plot_energy_signature_pes,
+)
 
 
 def _load_local_data():
@@ -110,7 +114,6 @@ class TestPlotDailyProfilesOverviewEdgeCases(unittest.TestCase):
         self.assertGreater(len(fig.data), 0)
 
 
-
 class TestPlotDailyProfiles(unittest.TestCase):
     """Tests for plot_daily_profiles with method parameter."""
 
@@ -164,7 +167,7 @@ class TestPlotDailyProfiles(unittest.TestCase):
     def test_overlayed_contains_weekdays(self):
         html = plot_daily_profiles(self.df, method="overlayed")
         for day in ["Monday", "Tuesday", "Wednesday", "Thursday",
-                     "Friday", "Saturday", "Sunday"]:
+                    "Friday", "Saturday", "Sunday"]:
             self.assertIn(day, html)
 
 
@@ -246,6 +249,102 @@ class TestPlotHeatmapCalendar(unittest.TestCase):
         df = pd.DataFrame({'timestamp': timestamps, 'value': values})
         fig = plot_heatmap_calendar(df)
         self.assertEqual(len(fig.data), 2)  # 2 years = 2 heatmaps
+
+
+def _load_simple_data():
+    """Load the bundled simple energy signature CSV."""
+    csv_path = os.path.join(
+        os.path.dirname(__file__), '..', 'pyedautils', 'data',
+        'bldg_engy_sig_simple.csv',
+    )
+    return pd.read_csv(csv_path, sep=';')
+
+
+def _load_pes_data():
+    """Load the bundled PES energy signature CSV."""
+    csv_path = os.path.join(
+        os.path.dirname(__file__), '..', 'pyedautils', 'data',
+        'bldg_engy_sig_pes.csv',
+    )
+    return pd.read_csv(csv_path)
+
+
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotEnergySignature(unittest.TestCase):
+    """Tests for plot_energy_signature."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.df = _load_simple_data()
+
+    def test_returns_figure(self, _mock):
+        fig = plot_energy_signature(self.df)
+        self.assertIsNotNone(fig)
+
+    def test_has_season_traces(self, _mock):
+        fig = plot_energy_signature(self.df)
+        trace_names = {t.name for t in fig.data}
+        # Should have at least some seasons
+        self.assertTrue(
+            trace_names.intersection({"Winter", "Spring", "Summer", "Fall"})
+        )
+
+    def test_custom_title(self, _mock):
+        fig = plot_energy_signature(self.df, title="My Title")
+        self.assertIn("My Title", fig.layout.title.text)
+
+    def test_custom_axis_labels(self, _mock):
+        fig = plot_energy_signature(
+            self.df, xlab="Temp [°C]", ylab="Energy [kWh]",
+        )
+        self.assertIn("Temp", fig.layout.xaxis.title.text)
+        self.assertIn("Energy", fig.layout.yaxis.title.text)
+
+    def test_custom_colors(self, _mock):
+        colors = {"Winter": "red", "Summer": "blue"}
+        fig = plot_energy_signature(self.df, colors=colors)
+        winter = [t for t in fig.data if t.name == "Winter"]
+        if winter:
+            self.assertEqual(winter[0].marker.color, "red")
+
+    def test_scatter_mode(self, _mock):
+        fig = plot_energy_signature(self.df)
+        for trace in fig.data:
+            self.assertEqual(trace.mode, "markers")
+
+
+@patch('pyedautils.energy_signature.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotEnergySignaturePES(unittest.TestCase):
+    """Tests for plot_energy_signature_pes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.df = _load_pes_data()
+
+    def test_returns_figure(self, _mock_season, _mock_es):
+        fig = plot_energy_signature_pes(self.df)
+        self.assertIsNotNone(fig)
+
+    def test_has_regression_lines(self, _mock_season, _mock_es):
+        fig = plot_energy_signature_pes(self.df)
+        trace_names = [t.name for t in fig.data]
+        self.assertTrue(any("Heating" in n for n in trace_names))
+        self.assertTrue(any("Base load" in n for n in trace_names))
+        self.assertTrue(any("Standby" in n for n in trace_names))
+
+    def test_custom_title(self, _mock_season, _mock_es):
+        fig = plot_energy_signature_pes(self.df, title="PES Custom")
+        self.assertIn("PES Custom", fig.layout.title.text)
+
+    def test_has_annotations(self, _mock_season, _mock_es):
+        fig = plot_energy_signature_pes(self.df)
+        self.assertGreaterEqual(len(fig.layout.annotations), 2)
+
+    def test_with_p_ihg(self, _mock_season, _mock_es):
+        fig = plot_energy_signature_pes(self.df, p_ihg=4.8)
+        self.assertIsNotNone(fig)
+        self.assertGreater(len(fig.data), 0)
 
 
 if __name__ == '__main__':
