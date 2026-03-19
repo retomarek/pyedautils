@@ -1080,7 +1080,7 @@ def plot_seasonal_before_after(
         subset = before[before["year"] == year].sort_values("month")
         fig.add_trace(go.Scatter(
             x=subset["month"], y=subset["value"],
-            mode="lines", name=str(year),
+            mode="lines", name="Before",
             line=dict(color="lightgrey", width=1),
             legendgroup="before",
             showlegend=bool(year == before["year"].min()),
@@ -1359,6 +1359,7 @@ def plot_comfort_temp_humidity(
     still_h = [20, 40, 75, 85, 80, 60, 30, 20, 20]
     fig.add_trace(go.Scatter(
         x=still_t, y=still_h,
+        mode="lines",
         fill="toself", fillcolor="rgba(255,165,0,0.25)",
         line=dict(color="orange"),
         name="Still comfortable",
@@ -1369,6 +1370,7 @@ def plot_comfort_temp_humidity(
     comf_h = [38, 74, 65, 35, 38]
     fig.add_trace(go.Scatter(
         x=comf_t, y=comf_h,
+        mode="lines",
         fill="toself", fillcolor="rgba(154,205,50,0.4)",
         line=dict(color="yellowgreen"),
         name="Comfortable",
