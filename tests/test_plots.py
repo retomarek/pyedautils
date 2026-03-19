@@ -330,8 +330,8 @@ class TestPlotEnergySignaturePES(unittest.TestCase):
         fig = plot_energy_signature_pes(self.df)
         trace_names = [t.name for t in fig.data]
         self.assertTrue(any("Heating" in n for n in trace_names))
-        self.assertTrue(any("Base load" in n for n in trace_names))
-        self.assertTrue(any("Standby" in n for n in trace_names))
+        self.assertTrue(any("P_dhw" in n for n in trace_names))
+        self.assertTrue(any("P_dhwc" in n for n in trace_names))
 
     def test_custom_title(self, _mock_season, _mock_es):
         fig = plot_energy_signature_pes(self.df, title="PES Custom")

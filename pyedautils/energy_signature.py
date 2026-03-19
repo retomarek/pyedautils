@@ -1,8 +1,12 @@
 """Proposed Energy Signature (PES) computation.
 
-Implements the iterative algorithm from Eriksson et al. (2020) to find
-the balance temperature, heat loss coefficient, standby power, and
-hot-water power of a building from hourly time-series data.
+Implements the iterative algorithm from Eriksson et al. (2020),
+"Development and validation of energy signature method", Energy &
+Buildings 210, 109756.
+
+Determines balance temperature, heat loss coefficient, domestic hot
+water circulation (DHWC) demand, and domestic hot water (DHW) demand
+from hourly time-series data.
 """
 
 from typing import NamedTuple
@@ -19,16 +23,21 @@ class PESResult(NamedTuple):
     Attributes:
         tb: Balance temperature [°C].
         q_tot: Total heat loss coefficient [kW/K].
-        p_stby: Standby power [kW].
-        p_hw: Hot-water power [kW].
+        p_dhwc: Domestic hot water circulation demand [kW] (standby).
+        p_dhw: Domestic hot water demand [kW].
         p_ihg: Internal heat gains [kW] (input parameter echoed back).
     """
 
     tb: float
     q_tot: float
-    p_stby: float
-    p_hw: float
+    p_dhwc: float
+    p_dhw: float
     p_ihg: float
+
+
+# Keep old field names accessible
+PESResult.p_stby = property(lambda self: self.p_dhwc)
+PESResult.p_hw = property(lambda self: self.p_dhw)
 
 
 def compute_pes(
@@ -39,8 +48,22 @@ def compute_pes(
     """Compute the Proposed Energy Signature parameters.
 
     The algorithm iteratively determines the balance temperature and
-    derives the heat loss coefficient, standby power, and hot-water
-    power from hourly building data.
+    derives the heat loss coefficient, DHWC demand (P_dhwc) and DHW
+    demand (P_dhw) from hourly building data.
+
+    Following Eriksson et al. (2020):
+
+    - **P_dhwc** is the mean of daily minimum power on days where at
+      least one hour has T_oa > T_b (Section 3.2.2).
+    - **P_dhw** is the mean of all hourly power at T_oa > T_b, minus
+      P_dhwc (Section 3.2.3).
+    - **Q_tot** is computed from nighttime hours (0:00–4:59) in
+      December–February using Eq. (7):
+      ``Q_tot = (P_dh + P_ihg - P_dhwc) / (T_room - T_oa)``
+      (Section 3.2.1).
+    - **T_b** is scanned from 10–20 °C in 0.1 °C steps; the value
+      where calculated annual energy is closest to measured is chosen
+      (Section 3.2.4, E_tot criterion).
 
     Args:
         data: DataFrame with columns
@@ -62,59 +85,70 @@ def compute_pes(
 
     df["season"] = get_season(df["timestamp"])
     df["day"] = df["timestamp"].dt.date
-    df["week"] = df["timestamp"].dt.isocalendar().week.astype(int)
-    df["year"] = df["timestamp"].dt.year
+    df["month"] = df["timestamp"].dt.month
     df["hour"] = df["timestamp"].dt.hour
 
-    # Pre-compute weekly aggregates
-    weekly_mean_temp = df.groupby(["year", "week"])["outside_temp"].mean()
-    weekly_min_power = df.groupby(["year", "week"])["power"].min()
-    weekly_mean_power = df.groupby(["year", "week"])["power"].mean()
+    # Total actual power sum (all hours) for Tb scan
+    total_power_actual = df["power"].sum()
+    t_oa_all = df["outside_temp"].values
 
-    # Pre-compute heating season data (Jan/Feb/Mar)
-    heating_all = df[df["timestamp"].dt.month.isin([1, 2, 3])].copy()
-    daily_max_temp = heating_all.groupby("day")["outside_temp"].max()
+    # Pre-compute nighttime winter data (Dec-Feb, hours 0-4)
+    # per Eriksson Section 3.2.1: "12:00 AM – 5:00 AM"
+    night_winter = df[
+        (df["month"].isin([12, 1, 2])) & (df["hour"].between(0, 4))
+    ].copy()
 
     # Initial balance temperature
     tb = 12.0
 
     for _ in range(max_iter):
-        # --- Warm weeks: weekly mean outside temp > Tb ---
-        warm_mask = weekly_mean_temp > tb
-        if not warm_mask.any():
+        # === P_dhwc (Section 3.2.2) ===
+        # Days with at least one hour where T_oa > Tb
+        daily_max_temp_all = df.groupby("day")["outside_temp"].max()
+        warm_days = daily_max_temp_all[daily_max_temp_all > tb].index
+        warm_day_data = df[df["day"].isin(warm_days)]
+
+        if warm_day_data.empty:
             raise ValueError(
-                f"No warm weeks found with Tb={tb:.1f}. "
+                f"No warm days found with Tb={tb:.1f}. "
                 "Check that data spans warm periods."
             )
 
-        # pStby = mean of (min power per warm week)
-        p_stby = weekly_min_power[warm_mask].mean()
+        # Min power per warm day, then average
+        daily_min_power = warm_day_data.groupby("day")["power"].min()
+        p_dhwc = daily_min_power.mean()
 
-        # pHw = mean of (mean power per warm week) - pStby
-        p_hw = weekly_mean_power[warm_mask].mean() - p_stby
+        # === P_dhw (Section 3.2.3) ===
+        # Mean of all hourly power where T_oa > Tb, minus P_dhwc
+        warm_hours = df[df["outside_temp"] > tb]
+        if warm_hours.empty:
+            p_dhw = 0.0
+        else:
+            p_dhw = warm_hours["power"].mean() - p_dhwc
 
-        # --- Heating season filter: daily max(TOa) < Tb ---
-        cold_days = daily_max_temp[daily_max_temp < tb].index
-        heating = heating_all[heating_all["day"].isin(cold_days)]
+        # === Q_tot (Section 3.2.1, Eq. 7) ===
+        # Nighttime (0-4h), Dec-Feb, T_oa < Tb
+        night_cold = night_winter[night_winter["outside_temp"] < tb]
 
-        if heating.empty:
+        if night_cold.empty:
             raise ValueError(
-                f"No cold days found with Tb={tb:.1f}. "
-                "Check that data includes winter months."
+                f"No nighttime winter data with T_oa < Tb={tb:.1f}. "
+                "Check that data includes Dec-Feb."
             )
 
-        # Daily means for heating period
-        daily = heating.groupby("day").agg(
-            mean_power=("power", "mean"),
-            mean_t_oa=("outside_temp", "mean"),
-            mean_t_room=("room_temp", "mean"),
+        # Eq. (7): Q_tot = (P_dh,sup + P_ihg - P_dhwc) /
+        #                   (T_indoors - T_outdoors)
+        # Use 1-day averaged outdoor temps to account for thermal
+        # mass (Section 3.2.1, Table 3)
+        night_cold = night_cold.copy()
+        daily_mean_t_oa = df.groupby("day")["outside_temp"].mean()
+        night_cold["daily_t_oa"] = (
+            night_cold["day"].map(daily_mean_t_oa)
         )
-
-        # q_tot from daily means
-        numerator = daily["mean_power"] - p_stby - p_hw + p_ihg
-        denominator = daily["mean_t_room"] - daily["mean_t_oa"]
-        valid = denominator.abs() > 0.01
-        q_tot = (numerator[valid] / denominator[valid]).mean()
+        denom = night_cold["room_temp"] - night_cold["daily_t_oa"]
+        numer = night_cold["power"] + p_ihg - p_dhwc
+        valid = denom.abs() > 0.01
+        q_tot = (numer[valid] / denom[valid]).mean()
 
         if np.isnan(q_tot) or q_tot <= 0:
             raise ValueError(
@@ -122,20 +156,22 @@ def compute_pes(
                 "Check input data quality."
             )
 
-        # --- Find new Tb by scanning 10..30 in 0.1 steps ---
-        # At balance temperature, heating power = 0, so:
-        #   P_actual = q_tot * (Tb - T_oa) + P_stby + P_hw - P_ihg
-        # Solve for Tb from mean heating period data:
-        mean_power = daily["mean_power"].mean()
-        mean_t_oa = daily["mean_t_oa"].mean()
-        # Tb = (mean_power - p_stby - p_hw + p_ihg) / q_tot + mean_t_oa
-        tb_candidates = np.arange(10.0, 30.05, 0.1)
+        # === T_b (Section 3.2.4) ===
+        # Scan 10-20°C in 0.1 steps (paper range)
+        # Eq. (9): P_dh,sup = Q_tot * max(0, Tb - T_oa) + P_dhw + P_dhwc
+        # Find Tb where sum(P_calc) / sum(P_actual) closest to 100%
+        tb_candidates = np.arange(10.0, 20.05, 0.1)
         best_tb = tb
         best_err = float("inf")
 
         for tb_c in tb_candidates:
-            p_calc = q_tot * (tb_c - mean_t_oa) + p_stby + p_hw - p_ihg
-            err = abs(p_calc - mean_power)
+            temp_diff = tb_c - t_oa_all
+            heating_mask = temp_diff > 0
+            power_calc_sum = (
+                (q_tot * temp_diff[heating_mask] + p_dhwc + p_dhw).sum()
+            )
+            perc_diff = 100.0 / total_power_actual * power_calc_sum
+            err = abs(perc_diff - 100.0)
             if err < best_err:
                 best_err = err
                 best_tb = round(tb_c, 1)
@@ -147,8 +183,8 @@ def compute_pes(
             return PESResult(
                 tb=round(tb, 1),
                 q_tot=round(q_tot, 4),
-                p_stby=round(p_stby, 4),
-                p_hw=round(p_hw, 4),
+                p_dhwc=round(p_dhwc, 4),
+                p_dhw=round(p_dhw, 4),
                 p_ihg=round(p_ihg, 4),
             )
 

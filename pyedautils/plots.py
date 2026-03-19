@@ -828,14 +828,12 @@ def plot_energy_signature_pes(
             customdata=subset["day"].astype(str),
         ))
 
-    # Regression lines
+    # Regression lines (Eq. 9: P = Q_tot * (Tb - T_oa)+ + P_dhw + P_dhwc)
     t_min = daily["outside_temp"].min()
-    base_power = pes.p_stby + pes.p_hw - pes.p_ihg
+    base_power = pes.p_dhwc + pes.p_dhw
 
     # Heating line: from t_min to Tb
     t_heat = [t_min, pes.tb]
-    # At Tb: power = base_power; at t_min: power = base_power + q_tot*(Tb - t_min)
-    # General: power = base_power + q_tot*(Tb - T)
     p_heat = [base_power + pes.q_tot * (pes.tb - t_min), base_power]
 
     fig.add_trace(go.Scatter(
@@ -845,20 +843,20 @@ def plot_energy_signature_pes(
         line=dict(color="red", width=2),
     ))
 
-    # Base load line: from Tb to max temp
+    # Base load line (P_dhw + P_dhwc): from Tb to max temp
     t_max = daily["outside_temp"].max()
     fig.add_trace(go.Scatter(
         x=[pes.tb, t_max], y=[base_power, base_power],
         mode="lines",
-        name=f"Base load (P_hw + P_stby = {base_power:.2f} kW)",
+        name=f"P_dhw + P_dhwc = {base_power:.2f} kW",
         line=dict(color="blue", width=2),
     ))
 
-    # Standby line
+    # DHWC line (standby)
     fig.add_trace(go.Scatter(
-        x=[pes.tb, t_max], y=[pes.p_stby, pes.p_stby],
+        x=[pes.tb, t_max], y=[pes.p_dhwc, pes.p_dhwc],
         mode="lines",
-        name=f"Standby (P_stby = {pes.p_stby:.2f} kW)",
+        name=f"P_dhwc = {pes.p_dhwc:.2f} kW",
         line=dict(color="green", width=2, dash="dash"),
     ))
 
@@ -880,7 +878,7 @@ def plot_energy_signature_pes(
     # Fix axis ranges so toggling seasons doesn't rescale
     all_x = [daily["outside_temp"].min(), t_min, pes.tb, t_max]
     all_y = [daily["power"].min(), daily["power"].max(),
-             p_heat[0], base_power, pes.p_stby]
+             p_heat[0], base_power, pes.p_dhwc]
     x_lo, x_hi = min(all_x), max(all_x)
     y_lo, y_hi = min(all_y), max(all_y)
     x_pad = (x_hi - x_lo) * 0.05

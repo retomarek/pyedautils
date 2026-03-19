@@ -47,26 +47,31 @@ class TestComputePES(unittest.TestCase):
         result = compute_pes(self.df)
         self.assertIsNotNone(result.tb)
         self.assertIsNotNone(result.q_tot)
-        self.assertIsNotNone(result.p_stby)
-        self.assertIsNotNone(result.p_hw)
+        self.assertIsNotNone(result.p_dhwc)
+        self.assertIsNotNone(result.p_dhw)
         self.assertIsNotNone(result.p_ihg)
 
     def test_tb_in_range(self, _mock):
         result = compute_pes(self.df)
         self.assertGreaterEqual(result.tb, 10.0)
-        self.assertLessEqual(result.tb, 30.0)
+        self.assertLessEqual(result.tb, 20.0)
 
     def test_q_tot_positive(self, _mock):
         result = compute_pes(self.df)
         self.assertGreater(result.q_tot, 0)
 
-    def test_p_stby_positive(self, _mock):
+    def test_p_dhwc_positive(self, _mock):
         result = compute_pes(self.df)
-        self.assertGreater(result.p_stby, 0)
+        self.assertGreater(result.p_dhwc, 0)
 
-    def test_p_hw_positive(self, _mock):
+    def test_p_dhw_positive(self, _mock):
         result = compute_pes(self.df)
-        self.assertGreater(result.p_hw, 0)
+        self.assertGreater(result.p_dhw, 0)
+
+    def test_backward_compat_aliases(self, _mock):
+        result = compute_pes(self.df)
+        self.assertEqual(result.p_stby, result.p_dhwc)
+        self.assertEqual(result.p_hw, result.p_dhw)
 
     def test_p_ihg_echoed(self, _mock):
         result = compute_pes(self.df, p_ihg=3.5)
