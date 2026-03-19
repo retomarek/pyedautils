@@ -897,6 +897,768 @@ def plot_energy_signature_pes(
     return fig
 
 
+def plot_seasonal_overlapping(
+    data: pd.DataFrame,
+    title: str = "Seasonal Plot — Overlapping",
+    ylab: str = "Value",
+) -> go.Figure:
+    """
+    Seasonal plot with one line per year overlaid on the same x-axis (month).
+
+    Args:
+        data: DataFrame with columns ``[timestamp, value]``.
+            Monthly data; value should be normalised (e.g. kWh/day).
+        title: Plot title.
+        ylab: Y-axis label.
+
+    Returns:
+        go.Figure
+    """
+    import plotly.express as px
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["year"] = df["timestamp"].dt.year
+    df["month"] = df["timestamp"].dt.month
+
+    years = sorted(df["year"].unique())
+    colors = px.colors.sample_colorscale(
+        "Viridis", [i / max(len(years) - 1, 1) for i in range(len(years))]
+    )
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    fig = go.Figure()
+    for i, year in enumerate(years):
+        subset = df[df["year"] == year].sort_values("month")
+        fig.add_trace(go.Scatter(
+            x=subset["month"], y=subset["value"],
+            mode="lines+markers", name=str(year),
+            line=dict(color=colors[i]),
+            marker=dict(size=4),
+        ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis=dict(
+            tickvals=list(range(1, 13)), ticktext=month_names,
+            title="Month",
+        ),
+        yaxis_title=ylab,
+    )
+    return fig
+
+
+def plot_seasonal_miniplots(
+    data: pd.DataFrame,
+    title: str = "Seasonal Miniplots",
+    ylab: str = "Value",
+) -> go.Figure:
+    """
+    Seasonal subseries plot — one mini panel per month showing values across years.
+
+    A horizontal blue line shows the per-month mean.
+
+    Args:
+        data: DataFrame with columns ``[timestamp, value]``.
+        title: Plot title.
+        ylab: Y-axis label.
+
+    Returns:
+        go.Figure
+    """
+    import plotly.express as px
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["year"] = df["timestamp"].dt.year
+    df["month"] = df["timestamp"].dt.month
+
+    years = sorted(df["year"].unique())
+    colors = px.colors.sample_colorscale(
+        "Viridis", [i / max(len(years) - 1, 1) for i in range(len(years))]
+    )
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    fig = make_subplots(
+        rows=1, cols=12,
+        shared_yaxes=True,
+        subplot_titles=month_names,
+        horizontal_spacing=0.02,
+    )
+
+    for month in range(1, 13):
+        subset = df[df["month"] == month].sort_values("year")
+        mean_val = subset["value"].mean()
+
+        for i, year in enumerate(years):
+            row = subset[subset["year"] == year]
+            if row.empty:
+                continue
+            fig.add_trace(go.Scatter(
+                x=[year], y=row["value"].values,
+                mode="markers", name=str(year),
+                marker=dict(color=colors[i], size=6),
+                showlegend=(month == 1),
+                legendgroup=str(year),
+            ), row=1, col=month)
+
+        # Connect points with lines
+        fig.add_trace(go.Scatter(
+            x=subset["year"], y=subset["value"],
+            mode="lines",
+            line=dict(color="grey", width=1),
+            showlegend=False,
+        ), row=1, col=month)
+
+        # Mean line
+        fig.add_trace(go.Scatter(
+            x=[years[0], years[-1]], y=[mean_val, mean_val],
+            mode="lines",
+            line=dict(color="blue", width=2),
+            showlegend=False,
+        ), row=1, col=month)
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        height=400,
+        yaxis_title=ylab,
+    )
+    return fig
+
+
+def plot_seasonal_before_after(
+    data: pd.DataFrame,
+    date_optimization: str,
+    title: str = "Seasonal — Before/After Optimization",
+    ylab: str = "Value",
+    confidence: float = 95.0,
+) -> go.Figure:
+    """
+    Seasonal plot highlighting before/after an optimization date.
+
+    Years before the optimization are shown in grey with a confidence
+    band; years after are shown in colour.
+
+    Args:
+        data: DataFrame with columns ``[timestamp, value]``.
+        date_optimization: Date string (e.g. ``"2017-09-01"``).
+            Years starting after this date are "after".
+        title: Plot title.
+        ylab: Y-axis label.
+        confidence: Confidence level for the "before" band (0-100).
+
+    Returns:
+        go.Figure
+    """
+    import plotly.express as px
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["year"] = df["timestamp"].dt.year
+    df["month"] = df["timestamp"].dt.month
+
+    opt_date = pd.to_datetime(date_optimization)
+    before = df[df["timestamp"] < opt_date]
+    after = df[df["timestamp"] >= opt_date]
+
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    fig = go.Figure()
+
+    # Before years in grey
+    for year in sorted(before["year"].unique()):
+        subset = before[before["year"] == year].sort_values("month")
+        fig.add_trace(go.Scatter(
+            x=subset["month"], y=subset["value"],
+            mode="lines", name=str(year),
+            line=dict(color="lightgrey", width=1),
+            legendgroup="before",
+            showlegend=bool(year == before["year"].min()),
+        ))
+
+    # Confidence band for before period
+    q_lo = (100 - confidence) / 200
+    q_hi = 1 - q_lo
+    monthly_stats = before.groupby("month")["value"].agg(
+        ["mean", lambda x: x.quantile(q_lo), lambda x: x.quantile(q_hi)]
+    )
+    monthly_stats.columns = ["mean", "lo", "hi"]
+    months = list(range(1, 13))
+
+    fig.add_trace(go.Scatter(
+        x=months + months[::-1],
+        y=list(monthly_stats.reindex(months)["hi"])
+        + list(monthly_stats.reindex(months)["lo"][::-1]),
+        fill="toself", fillcolor="rgba(150,150,150,0.2)",
+        line=dict(color="rgba(0,0,0,0)"),
+        name=f"Before ({confidence:.0f}% CI)",
+        showlegend=True,
+    ))
+
+    # Mean line for before
+    fig.add_trace(go.Scatter(
+        x=months,
+        y=list(monthly_stats.reindex(months)["mean"]),
+        mode="lines",
+        line=dict(color="grey", width=2, dash="dash"),
+        name="Before (mean)",
+    ))
+
+    # After years in colour
+    after_years = sorted(after["year"].unique())
+    colors = px.colors.sample_colorscale(
+        "Viridis", [i / max(len(after_years) - 1, 1)
+                    for i in range(len(after_years))]
+    )
+    for i, year in enumerate(after_years):
+        subset = after[after["year"] == year].sort_values("month")
+        fig.add_trace(go.Scatter(
+            x=subset["month"], y=subset["value"],
+            mode="lines+markers", name=str(year),
+            line=dict(color=colors[i], width=2),
+            marker=dict(size=5),
+        ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis=dict(
+            tickvals=list(range(1, 13)), ticktext=month_names,
+            title="Month",
+        ),
+        yaxis_title=ylab,
+    )
+    return fig
+
+
+def plot_seasonal_polar(
+    data: pd.DataFrame,
+    title: str = "Seasonal Plot — Polar",
+    ylab: str = "Value",
+) -> go.Figure:
+    """
+    Seasonal plot in polar coordinates — one line per year.
+
+    Args:
+        data: DataFrame with columns ``[timestamp, value]``.
+        title: Plot title.
+        ylab: Radial axis label.
+
+    Returns:
+        go.Figure
+    """
+    import plotly.express as px
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["year"] = df["timestamp"].dt.year
+    df["month"] = df["timestamp"].dt.month
+
+    years = sorted(df["year"].unique())
+    colors = px.colors.sample_colorscale(
+        "Viridis", [i / max(len(years) - 1, 1) for i in range(len(years))]
+    )
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    fig = go.Figure()
+    for i, year in enumerate(years):
+        subset = df[df["year"] == year].sort_values("month")
+        # Close the loop
+        theta = [month_names[m - 1] for m in subset["month"]]
+        r = list(subset["value"])
+        if len(theta) == 12:
+            theta.append(theta[0])
+            r.append(r[0])
+        fig.add_trace(go.Scatterpolar(
+            r=r, theta=theta,
+            mode="lines", name=str(year),
+            line=dict(color=colors[i]),
+        ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        polar=dict(radialaxis=dict(title=ylab)),
+    )
+    return fig
+
+
+def plot_comfort_sia180(
+    data_outdoor: pd.DataFrame,
+    data_room: pd.DataFrame,
+    title: str = "Thermal Comfort according to SIA 180:2014",
+    colors: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """
+    SIA 180:2014 thermal comfort plot.
+
+    Scatter of room temperature vs 48-hour rolling mean outdoor
+    temperature, colored by season, with SIA 180 comfort boundaries.
+
+    Args:
+        data_outdoor: DataFrame ``[timestamp, value]`` with outdoor temp.
+        data_room: DataFrame ``[timestamp, value]`` with room temp.
+        title: Plot title.
+        colors: Season color overrides.
+
+    Returns:
+        go.Figure
+    """
+    from pyedautils.season import get_season
+
+    c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
+
+    # Outdoor: hourly mean, fill gaps, 48h rolling mean
+    df_oa = data_outdoor.copy()
+    df_oa.columns = ["timestamp", "value"]
+    df_oa["timestamp"] = pd.to_datetime(df_oa["timestamp"])
+    df_oa["hour"] = df_oa["timestamp"].dt.floor("h")
+    df_oa = df_oa.groupby("hour")["value"].mean().reset_index()
+    df_oa.columns = ["timestamp", "temp_oa"]
+    full = pd.date_range(df_oa["timestamp"].min(),
+                         df_oa["timestamp"].max(), freq="h")
+    df_oa = df_oa.set_index("timestamp").reindex(full).interpolate()
+    df_oa["temp_oa_48h"] = df_oa["temp_oa"].rolling(48, min_periods=1).mean()
+    df_oa = df_oa.dropna(subset=["temp_oa_48h"]).reset_index()
+    df_oa.columns = ["timestamp", "temp_oa", "temp_oa_48h"]
+
+    # Room: hourly mean
+    df_r = data_room.copy()
+    df_r.columns = ["timestamp", "value"]
+    df_r["timestamp"] = pd.to_datetime(df_r["timestamp"])
+    df_r["hour"] = df_r["timestamp"].dt.floor("h")
+    df_r = df_r.groupby("hour")["value"].mean().reset_index()
+    df_r.columns = ["timestamp", "temp_r"]
+
+    # Merge
+    data = df_oa[["timestamp", "temp_oa_48h"]].merge(
+        df_r, on="timestamp", how="inner"
+    ).dropna()
+    data["season"] = get_season(data["timestamp"])
+
+    # Axis ranges
+    min_x = min(0, data["temp_oa_48h"].min())
+    max_x = max(28, data["temp_oa_48h"].max())
+    min_y = min(21, data["temp_r"].min()) - 1
+    max_y = max(32, data["temp_r"].max()) + 1
+
+    fig = go.Figure()
+
+    # SIA 180 boundaries
+    # Lower limit (heating setpoint)
+    fig.add_trace(go.Scatter(
+        x=[min_x, 19, 23.5, max_x],
+        y=[20.5, 20.5, 22, 22],
+        mode="lines", name="Lower limit SIA 180",
+        line=dict(color="#440154", width=2),
+    ))
+    # Upper limit active cooling
+    fig.add_trace(go.Scatter(
+        x=[min_x, 12, 17.5, max_x],
+        y=[24.5, 24.5, 26.5, 26.5],
+        mode="lines", name="Upper limit active cooling",
+        line=dict(color="#1E9B8A", width=2),
+    ))
+    # Upper limit passive cooling
+    fig.add_trace(go.Scatter(
+        x=[min_x, 10, max_x],
+        y=[25, 25, 0.33 * max_x + 21.8],
+        mode="lines", name="Upper limit passive cooling",
+        line=dict(color="#FDE725", width=2),
+    ))
+
+    # Scatter by season
+    for season in ["Spring", "Summer", "Fall", "Winter"]:
+        s = data[data["season"] == season]
+        if s.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=s["temp_oa_48h"], y=s["temp_r"],
+            mode="markers", name=season,
+            marker=dict(color=c.get(season, "#999"), size=5, opacity=0.3),
+            hovertemplate=(
+                "T_room: %{y:.1f} °C<br>"
+                "T_oa (48h): %{x:.1f} °C<br>"
+                "Date: %{customdata}<br>"
+                f"Season: {season}<extra></extra>"
+            ),
+            customdata=s["timestamp"].dt.strftime("%Y-%m-%d %H:%M"),
+        ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis=dict(
+            title="Moving avg outdoor temp (48h) [°C]",
+            range=[min_x, max_x], dtick=2,
+        ),
+        yaxis=dict(
+            title="Room Temperature [°C]",
+            range=[min_y, max_y], dtick=1,
+        ),
+    )
+    return fig
+
+
+def plot_comfort_temp_humidity(
+    data: pd.DataFrame,
+    title: str = "Temperature vs Humidity Comfort Plot",
+    colors: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """
+    Scatter of daily mean temperature vs humidity with comfort zones.
+
+    Shows two comfort zone polygons: "comfortable" (green) and
+    "still comfortable" (orange), based on common building standards.
+
+    Args:
+        data: DataFrame ``[timestamp, temperature, humidity]``.
+            Humidity in %rH, temperature in °C.
+        title: Plot title.
+        colors: Season color overrides.
+
+    Returns:
+        go.Figure
+    """
+    from pyedautils.season import get_season
+
+    c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
+
+    df = data.copy()
+    df.columns = ["timestamp", "temperature", "humidity"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["day"] = df["timestamp"].dt.date
+
+    daily = df.groupby("day").agg(
+        temperature=("temperature", "mean"),
+        humidity=("humidity", "mean"),
+    ).reset_index()
+    daily["timestamp"] = pd.to_datetime(daily["day"])
+    daily["season"] = get_season(daily["timestamp"])
+
+    fig = go.Figure()
+
+    # Comfort zones (polygons)
+    # "Still comfortable"
+    still_t = [20, 17, 16, 17, 21.5, 25, 27, 25.5, 20]
+    still_h = [20, 40, 75, 85, 80, 60, 30, 20, 20]
+    fig.add_trace(go.Scatter(
+        x=still_t, y=still_h,
+        fill="toself", fillcolor="rgba(255,165,0,0.25)",
+        line=dict(color="orange"),
+        name="Still comfortable",
+    ))
+
+    # "Comfortable"
+    comf_t = [19, 17.5, 22.5, 24, 19]
+    comf_h = [38, 74, 65, 35, 38]
+    fig.add_trace(go.Scatter(
+        x=comf_t, y=comf_h,
+        fill="toself", fillcolor="rgba(154,205,50,0.4)",
+        line=dict(color="yellowgreen"),
+        name="Comfortable",
+    ))
+
+    # Scatter by season
+    for season in ["Spring", "Summer", "Fall", "Winter"]:
+        s = daily[daily["season"] == season]
+        if s.empty:
+            continue
+        fig.add_trace(go.Scatter(
+            x=s["temperature"], y=s["humidity"],
+            mode="markers", name=season,
+            marker=dict(color=c.get(season, "#999"), size=6, opacity=0.5),
+            hovertemplate=(
+                "Temp: %{x:.1f} °C<br>"
+                "Hum: %{y:.1f} %rH<br>"
+                "Date: %{customdata}<br>"
+                f"Season: {season}<extra></extra>"
+            ),
+            customdata=s["day"].astype(str),
+        ))
+
+    min_x = min(14, daily["temperature"].min())
+    max_x = max(28, daily["temperature"].max())
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis=dict(title="Temperature [°C]",
+                   range=[min_x, max_x], dtick=2),
+        yaxis=dict(title="Humidity [%rH]",
+                   range=[0, 100], dtick=20),
+    )
+    return fig
+
+
+def plot_sum_frequency(
+    data: pd.DataFrame,
+    resolution: str = "hourly",
+    year: Optional[int] = None,
+    reverse: bool = False,
+    title: Optional[str] = None,
+    xlab: Optional[str] = None,
+    ylab: str = "Value",
+) -> go.Figure:
+    """
+    Create a sum frequency (duration curve) plot.
+
+    Values are sorted and plotted against their rank (frequency).
+    Useful for temperature duration curves or load duration curves.
+
+    Args:
+        data: DataFrame with two columns: timestamp and value.
+        resolution: ``"hourly"`` or ``"daily"``. Controls aggregation.
+        year: Filter to a specific year. If *None*, use all data.
+        reverse: If *True*, the highest value is at x=0
+            (classic duration curve / Jahresdauerlinie).
+            If *False* (default), lowest value at x=0 (R default).
+        title: Plot title. Auto-generated if *None*.
+        xlab: X-axis label. Auto-generated if *None*.
+        ylab: Y-axis label.
+
+    Returns:
+        go.Figure
+    """
+    import numpy as np
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    if year is not None:
+        df = df[df["timestamp"].dt.year == year]
+
+    if resolution == "daily":
+        df["day"] = df["timestamp"].dt.date
+        agg = df.groupby("day")["value"].mean().dropna()
+        freq_label = "days"
+    else:
+        df["hour"] = df["timestamp"].dt.floor("h")
+        agg = df.groupby("hour")["value"].mean().dropna()
+        freq_label = "hours"
+
+    sorted_vals = np.sort(agg.values)
+    if reverse:
+        sorted_vals = sorted_vals[::-1]
+
+    freq = np.arange(1, len(sorted_vals) + 1)
+
+    if title is None:
+        yr = f" ({year})" if year else ""
+        title = f"Sum Frequency Plot — {resolution.title()}{yr}"
+    if xlab is None:
+        xlab = f"Frequency ({freq_label})"
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=freq, y=sorted_vals,
+        mode="markers",
+        marker=dict(color="orange", size=3, opacity=0.6),
+        name="",
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis_title=xlab,
+        yaxis_title=ylab,
+    )
+    return fig
+
+
+def plot_density_seasons(
+    data: pd.DataFrame,
+    title: str = "Density Plot by Season",
+    xlab: str = "Value",
+    ylab: str = "Density",
+    colors: Optional[Dict[str, str]] = None,
+) -> go.Figure:
+    """
+    Create a kernel density plot of a value column, one curve per season.
+
+    Args:
+        data: DataFrame with two columns: timestamp and value.
+        title: Plot title.
+        xlab: X-axis label.
+        ylab: Y-axis label.
+        colors: Season color overrides keyed by season name.
+            Default uses ``DEFAULT_SEASON_COLORS``.
+
+    Returns:
+        go.Figure: Plotly figure with one density trace per season.
+    """
+    import numpy as np
+    from pyedautils.season import get_season
+
+    c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["season"] = get_season(df["timestamp"])
+
+    fig = go.Figure()
+
+    for season in ["Spring", "Summer", "Fall", "Winter"]:
+        subset = df[df["season"] == season]["value"].dropna()
+        if subset.empty:
+            continue
+
+        # Kernel density estimation using numpy histogram
+        values = subset.values
+        n_bins = 200
+        x_min, x_max = values.min(), values.max()
+        padding = (x_max - x_min) * 0.15
+        x_grid = np.linspace(x_min - padding, x_max + padding, n_bins)
+
+        # Gaussian KDE via scipy-free approach: histogram + smoothing
+        from numpy import exp, sqrt, pi
+        bandwidth = 1.06 * values.std() * len(values) ** (-1 / 5)
+        density = np.zeros_like(x_grid)
+        for v in values:
+            density += exp(-0.5 * ((x_grid - v) / bandwidth) ** 2)
+        density /= (len(values) * bandwidth * sqrt(2 * pi))
+
+        fig.add_trace(go.Scatter(
+            x=x_grid,
+            y=density,
+            mode="lines",
+            name=season,
+            line=dict(color=c.get(season, "#999"), width=2),
+        ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        xaxis_title=xlab,
+        yaxis_title=ylab,
+    )
+
+    return fig
+
+
+def plot_decomposition(
+    data: pd.DataFrame,
+    period: Optional[int] = None,
+    s_window: Optional[int] = None,
+    title: str = "Time Series Decomposition",
+    ylab: str = "Value",
+    digits: int = 1,
+) -> go.Figure:
+    """
+    Decompose a time series into trend, seasonal, and remainder using STL.
+
+    Works for both long-term (e.g. monthly over years, period=12) and
+    short-term data (e.g. 15-min over days, period=96).
+
+    Args:
+        data: DataFrame with two columns: timestamp and value.
+        period: Seasonal period in number of observations. If *None*,
+            auto-detected from the data frequency (e.g. 12 for monthly,
+            96 for 15-min, 24 for hourly).
+        s_window: Seasonal smoothing window for STL. If *None*, defaults
+            to ``2 * period + 1`` (robust default).
+        title: Plot title.
+        ylab: Y-axis label for the raw data panel.
+        digits: Decimal places for rounding. Default 1.
+
+    Returns:
+        go.Figure: Plotly figure with 4 subplot rows
+        (observed, trend, seasonal, remainder).
+    """
+    from statsmodels.tsa.seasonal import STL
+
+    df = data.copy()
+    df.columns = ["timestamp", "value"]
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp").reset_index(drop=True)
+
+    # Auto-detect period from frequency
+    if period is None:
+        if len(df) >= 2:
+            delta = df["timestamp"].diff().median()
+            seconds = delta.total_seconds()
+            if seconds <= 960:       # ~15 min -> daily period
+                period = int(86400 / seconds)
+            elif seconds <= 3660:    # ~1 hour -> daily period
+                period = 24
+            elif seconds <= 90000:   # ~1 day -> weekly period
+                period = 7
+            else:                    # monthly or longer -> yearly
+                period = 12
+
+    if s_window is None:
+        s_window = 2 * period + 1
+
+    ts = df.set_index("timestamp")["value"]
+
+    stl_result = STL(ts, period=period, seasonal=s_window).fit()
+
+    components = {
+        "Observed": ts.values,
+        "Trend": stl_result.trend,
+        "Seasonal": stl_result.seasonal,
+        "Remainder": stl_result.resid,
+    }
+
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        subplot_titles=list(components.keys()),
+    )
+
+    timestamps = df["timestamp"]
+
+    for i, (name, values) in enumerate(components.items(), start=1):
+        rounded = [round(v, digits) for v in values]
+        fig.add_trace(
+            go.Scatter(
+                x=timestamps,
+                y=rounded,
+                mode="lines",
+                name=name,
+                line=dict(color="black", width=1),
+                showlegend=False,
+            ),
+            row=i, col=1,
+        )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=700,
+    )
+
+    # Y-axis label only on first row
+    fig.update_yaxes(title_text=ylab, row=1, col=1)
+
+    return fig
+
+
 def _load_d3_js():
     """Load bundled D3.js source files for the Mollier diagram."""
     from importlib import resources as _res

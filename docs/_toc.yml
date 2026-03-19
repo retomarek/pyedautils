@@ -23,5 +23,10 @@ chapters:
           - file: examples/heatmap_calendar
           - file: examples/mollier_hx
           - file: examples/energy_signature
+          - file: examples/decomposition
+          - file: examples/density_seasons
+          - file: examples/seasonal
+          - file: examples/sum_frequency
+          - file: examples/comfort
       - file: examples/season
       - file: examples/meteo_swiss

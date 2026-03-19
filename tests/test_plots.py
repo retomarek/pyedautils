@@ -7,6 +7,11 @@ from pyedautils.plots import (
     plot_daily_profiles_overview, plot_daily_profiles,
     plot_heatmap_median_weeks, plot_heatmap_calendar,
     plot_energy_signature, plot_energy_signature_pes,
+    plot_decomposition, plot_density_seasons,
+    plot_seasonal_overlapping, plot_seasonal_miniplots,
+    plot_seasonal_before_after, plot_seasonal_polar,
+    plot_sum_frequency,
+    plot_comfort_sia180, plot_comfort_temp_humidity,
 )
 
 
@@ -345,6 +350,203 @@ class TestPlotEnergySignaturePES(unittest.TestCase):
         fig = plot_energy_signature_pes(self.df, p_ihg=4.8)
         self.assertIsNotNone(fig)
         self.assertGreater(len(fig.data), 0)
+
+
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotComfort(unittest.TestCase):
+    """Tests for comfort plot functions."""
+
+    @classmethod
+    def setUpClass(cls):
+        base = os.path.join(os.path.dirname(__file__), '..', 'pyedautils', 'data')
+        cls.df_oa = pd.read_csv(os.path.join(base, 'outside_temp.csv'), sep=';')
+        cls.df_r = pd.read_csv(os.path.join(base, 'flat_temp.csv'), sep=';')
+        cls.df_th = pd.read_csv(os.path.join(base, 'flat_temp_hum.csv'), sep=';')
+
+    def test_sia180_returns_figure(self, _mock):
+        fig = plot_comfort_sia180(self.df_oa, self.df_r)
+        self.assertIsNotNone(fig)
+        self.assertGreater(len(fig.data), 0)
+
+    def test_sia180_has_boundary_lines(self, _mock):
+        fig = plot_comfort_sia180(self.df_oa, self.df_r)
+        names = [t.name for t in fig.data]
+        self.assertTrue(any("Lower" in n for n in names))
+        self.assertTrue(any("active" in n for n in names))
+
+    def test_temp_hum_returns_figure(self, _mock):
+        fig = plot_comfort_temp_humidity(self.df_th)
+        self.assertIsNotNone(fig)
+
+    def test_temp_hum_has_comfort_zones(self, _mock):
+        fig = plot_comfort_temp_humidity(self.df_th)
+        names = [t.name for t in fig.data]
+        self.assertIn("Comfortable", names)
+        self.assertIn("Still comfortable", names)
+
+    def test_temp_hum_custom_title(self, _mock):
+        fig = plot_comfort_temp_humidity(self.df_th, title="My Comfort")
+        self.assertIn("My Comfort", fig.layout.title.text)
+
+
+class TestPlotSumFrequency(unittest.TestCase):
+    """Tests for plot_sum_frequency."""
+
+    @classmethod
+    def setUpClass(cls):
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'pyedautils', 'data',
+            'outside_temp.csv',
+        )
+        cls.df = pd.read_csv(csv_path, sep=';')
+
+    def test_daily_returns_figure(self):
+        fig = plot_sum_frequency(self.df, resolution='daily', year=2019)
+        self.assertIsNotNone(fig)
+
+    def test_hourly_returns_figure(self):
+        fig = plot_sum_frequency(self.df, resolution='hourly', year=2019)
+        self.assertIsNotNone(fig)
+
+    def test_reverse_flag(self):
+        fig_asc = plot_sum_frequency(self.df, resolution='daily', year=2019)
+        fig_desc = plot_sum_frequency(self.df, resolution='daily',
+                                      year=2019, reverse=True)
+        # First y-value should be lowest for ascending, highest for descending
+        self.assertLess(fig_asc.data[0].y[0], fig_desc.data[0].y[0])
+
+    def test_custom_title(self):
+        fig = plot_sum_frequency(self.df, title="Custom SF")
+        self.assertIn("Custom SF", fig.layout.title.text)
+
+
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotDensitySeasons(unittest.TestCase):
+    """Tests for plot_density_seasons."""
+
+    @classmethod
+    def setUpClass(cls):
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'pyedautils', 'data',
+            'flat_temp.csv',
+        )
+        cls.df = pd.read_csv(csv_path, sep=';')
+
+    def test_returns_figure(self, _mock):
+        fig = plot_density_seasons(self.df)
+        self.assertIsNotNone(fig)
+
+    def test_four_season_traces(self, _mock):
+        fig = plot_density_seasons(self.df)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_custom_title(self, _mock):
+        fig = plot_density_seasons(self.df, title="My Density")
+        self.assertIn("My Density", fig.layout.title.text)
+
+    def test_trace_names(self, _mock):
+        fig = plot_density_seasons(self.df)
+        names = {t.name for t in fig.data}
+        self.assertEqual(names, {"Spring", "Summer", "Fall", "Winter"})
+
+
+class TestPlotSeasonalPlots(unittest.TestCase):
+    """Tests for all 4 seasonal plot functions."""
+
+    @classmethod
+    def setUpClass(cls):
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'pyedautils', 'data',
+            'seasonal_monthly.csv',
+        )
+        cls.df = pd.read_csv(csv_path, sep=';')
+
+    def test_overlapping_returns_figure(self):
+        fig = plot_seasonal_overlapping(self.df)
+        self.assertIsNotNone(fig)
+        self.assertGreater(len(fig.data), 0)
+
+    def test_overlapping_custom_title(self):
+        fig = plot_seasonal_overlapping(self.df, title="Custom")
+        self.assertIn("Custom", fig.layout.title.text)
+
+    def test_miniplots_returns_figure(self):
+        fig = plot_seasonal_miniplots(self.df)
+        self.assertIsNotNone(fig)
+
+    def test_miniplots_has_12_subplots(self):
+        fig = plot_seasonal_miniplots(self.df)
+        # Should have traces for 12 months
+        self.assertGreater(len(fig.data), 12)
+
+    def test_before_after_returns_figure(self):
+        fig = plot_seasonal_before_after(
+            self.df, date_optimization="2017-09-01")
+        self.assertIsNotNone(fig)
+        self.assertGreater(len(fig.data), 0)
+
+    def test_before_after_custom_title(self):
+        fig = plot_seasonal_before_after(
+            self.df, date_optimization="2017-09-01", title="BefAft")
+        self.assertIn("BefAft", fig.layout.title.text)
+
+    def test_polar_returns_figure(self):
+        fig = plot_seasonal_polar(self.df)
+        self.assertIsNotNone(fig)
+        self.assertGreater(len(fig.data), 0)
+
+    def test_polar_uses_scatterpolar(self):
+        fig = plot_seasonal_polar(self.df)
+        self.assertEqual(fig.data[0].type, "scatterpolar")
+
+
+class TestPlotDecomposition(unittest.TestCase):
+    """Tests for plot_decomposition."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Long-term monthly data
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'pyedautils', 'data',
+            'decomposition_long.csv',
+        )
+        cls.df_long = pd.read_csv(csv_path, sep=';')
+
+        # Short-term 15-min data
+        csv_path = os.path.join(
+            os.path.dirname(__file__), '..', 'pyedautils', 'data',
+            'decomposition_short.csv',
+        )
+        cls.df_short = pd.read_csv(csv_path, sep=';')
+
+    def test_long_returns_figure(self):
+        fig = plot_decomposition(self.df_long, period=12, s_window=7)
+        self.assertIsNotNone(fig)
+
+    def test_long_has_four_panels(self):
+        fig = plot_decomposition(self.df_long, period=12, s_window=7)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_short_returns_figure(self):
+        fig = plot_decomposition(self.df_short, period=96, s_window=193)
+        self.assertIsNotNone(fig)
+
+    def test_short_has_four_panels(self):
+        fig = plot_decomposition(self.df_short, period=96, s_window=193)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_custom_title(self):
+        fig = plot_decomposition(self.df_long, period=12,
+                                 title="Custom Title")
+        self.assertIn("Custom Title", fig.layout.title.text)
+
+    def test_auto_period_monthly(self):
+        fig = plot_decomposition(self.df_long)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_auto_period_15min(self):
+        fig = plot_decomposition(self.df_short)
+        self.assertEqual(len(fig.data), 4)
 
 
 if __name__ == '__main__':

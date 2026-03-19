@@ -4,3 +4,4 @@ geopy>=2.4.1
 requests>=2.31.0
 pgeocode>=0.4.1
 plotly>=5.19.0
+statsmodels>=0.14.0
