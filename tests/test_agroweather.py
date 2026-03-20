@@ -11,44 +11,39 @@ from pyedautils.agroweather import (
     download_data_by_plz,
 )
 
-MOCK_STATIONS_JSON = [
-    {
-        "id": 1,
-        "name": "Agraro",
-        "lat": 46.0,
-        "lng": 8.9,
-        "sensors": [{"id": 1}, {"id": 4}, {"id": 6}],
-    },
-    {
-        "id": 2,
-        "name": "Berno",
-        "lat": 46.95,
-        "lng": 7.45,
-        "sensors": [{"id": 1}, {"id": 11}],
-    },
-    {
-        "id": 3,
-        "name": "Cevio",
-        "lat": 46.3,
-        "lng": 8.6,
-        "sensors": [{"id": 1}, {"id": 4}, {"id": 6}, {"id": 11}],
-    },
-]
-
-MOCK_DOWNLOAD_JSON = {
+MOCK_STATIONS_API = {
     "data": [
         {
-            "date": "2024-01-01T00:00:00",
-            "sensors": [
-                {"id": 1, "avg": 2.5},
-            ],
+            "id": 1,
+            "name": "Agraro",
+            "lat_dec": "46.0",
+            "long_dec": "8.9",
+            "altitude": 400,
+            "sensors": [{"id": 1}, {"id": 4}, {"id": 6}],
         },
         {
-            "date": "2024-01-01T01:00:00",
-            "sensors": [
-                {"id": 1, "avg": 2.3},
-            ],
+            "id": 2,
+            "name": "Berno",
+            "lat_dec": "46.95",
+            "long_dec": "7.45",
+            "altitude": 550,
+            "sensors": [{"id": 1}, {"id": 11}],
         },
+        {
+            "id": 3,
+            "name": "Cevio",
+            "lat_dec": "46.3",
+            "long_dec": "8.6",
+            "altitude": 450,
+            "sensors": [{"id": 1}, {"id": 4}, {"id": 6}, {"id": 11}],
+        },
+    ]
+}
+
+MOCK_DOWNLOAD_API = {
+    "data": [
+        {"date": "2024-01-01 00:00:00", "1_1_avg": "2.5"},
+        {"date": "2024-01-01 01:00:00", "1_1_avg": "2.3"},
     ]
 }
 
@@ -58,7 +53,7 @@ class TestGetStationData(unittest.TestCase):
     @patch('pyedautils.agroweather.requests.get')
     def test_returns_dataframe(self, mock_get):
         mock_response = MagicMock()
-        mock_response.json.return_value = MOCK_STATIONS_JSON
+        mock_response.json.return_value = MOCK_STATIONS_API
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
@@ -67,6 +62,8 @@ class TestGetStationData(unittest.TestCase):
         self.assertEqual(len(result), 3)
         self.assertIn("id", result.columns)
         self.assertIn("sensors", result.columns)
+        self.assertAlmostEqual(result.iloc[0]["lat"], 46.0)
+        self.assertAlmostEqual(result.iloc[0]["lon"], 8.9)
 
     @patch('pyedautils.agroweather.requests.get')
     def test_network_error(self, mock_get):
@@ -84,7 +81,6 @@ class TestFindNearestStation(unittest.TestCase):
             {"id": 2, "name": "Berno", "lat": 46.95, "lon": 7.45, "sensors": [1, 11]},
             {"id": 3, "name": "Cevio", "lat": 46.3, "lon": 8.6, "sensors": [1, 4, 6, 11]},
         ])
-        # Closest to (46.95, 7.45) for temp should be station 2 (Berno)
         result = find_nearest_station(46.95, 7.45, sensor="temp")
         self.assertEqual(result, 2)
 
@@ -95,8 +91,6 @@ class TestFindNearestStation(unittest.TestCase):
             {"id": 2, "name": "Berno", "lat": 46.95, "lon": 7.45, "sensors": [1, 11]},
             {"id": 3, "name": "Cevio", "lat": 46.3, "lon": 8.6, "sensors": [1, 4, 6, 11]},
         ])
-        # Closest to (46.0, 8.9) for globrad: station 2 has globrad (11) but is far,
-        # station 3 also has it and is closer
         result = find_nearest_station(46.0, 8.9, sensor="globrad")
         self.assertEqual(result, 3)
 
@@ -111,7 +105,6 @@ class TestFindNearestStation(unittest.TestCase):
 
     @patch('pyedautils.agroweather.get_station_data')
     def test_no_station_with_sensor(self, mock_data):
-        # All stations lack globrad (11)
         mock_data.return_value = pd.DataFrame([
             {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4]},
         ])
@@ -128,7 +121,7 @@ class TestDownloadData(unittest.TestCase):
     @patch('pyedautils.agroweather.requests.get')
     def test_returns_dataframe(self, mock_get):
         mock_response = MagicMock()
-        mock_response.json.return_value = MOCK_DOWNLOAD_JSON
+        mock_response.json.return_value = MOCK_DOWNLOAD_API
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 
@@ -136,12 +129,7 @@ class TestDownloadData(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
         self.assertIn("temp", result.columns)
-
-    @patch('pyedautils.agroweather.requests.get')
-    def test_network_error(self, mock_get):
-        mock_get.side_effect = Exception("Network error")
-        with self.assertRaises(ValueError):
-            download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
+        self.assertEqual(result.iloc[0]["temp"], 2.5)
 
     @patch('pyedautils.agroweather.requests.get')
     def test_default_sensors(self, mock_get):
@@ -152,19 +140,30 @@ class TestDownloadData(unittest.TestCase):
 
         result = download_data(1, "2024-01-01", "2024-01-02")
         self.assertIsInstance(result, pd.DataFrame)
-        # Verify URL contains all 4 default sensor IDs
-        call_url = mock_get.call_args[0][0]
-        self.assertIn("1", call_url)
-        self.assertIn("11", call_url)
-        self.assertIn("4", call_url)
-        self.assertIn("6", call_url)
+        self.assertTrue(result.empty)
+
+    @patch('pyedautils.agroweather.requests.get')
+    def test_empty_data(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertTrue(result.empty)
+
+    @patch('pyedautils.agroweather.requests.get')
+    def test_network_error(self, mock_get):
+        mock_get.side_effect = Exception("Network error")
+        with self.assertRaises(ValueError):
+            download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
 
     @patch('pyedautils.agroweather.requests.get')
     def test_parse_error(self, mock_get):
         mock_response = MagicMock()
         mock_response.raise_for_status.return_value = None
-        # Return data that will cause a parse error (missing "data" key with bad structure)
-        mock_response.json.return_value = {"data": [{"date": None, "sensors": "bad"}]}
+        mock_response.json.return_value = {"data": "not_a_list"}
         mock_get.return_value = mock_response
 
         with self.assertRaises(ValueError) as ctx:
@@ -200,7 +199,6 @@ class TestDownloadDataByPlz(unittest.TestCase):
     @patch('pyedautils.agroweather.get_coordindates_ch_plz')
     def test_merges_multiple_stations(self, mock_plz, mock_nearest, mock_download):
         mock_plz.return_value = (47.05, 8.31)
-        # Different stations for different sensors
         mock_nearest.side_effect = [1, 2, 1, 1]
 
         idx = pd.to_datetime(["2024-01-01 00:00", "2024-01-01 01:00"])

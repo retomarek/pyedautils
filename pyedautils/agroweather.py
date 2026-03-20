@@ -25,7 +25,7 @@ def get_station_data() -> pd.DataFrame:
     Fetches all agrometeo.ch weather stations.
 
     Returns:
-        pd.DataFrame: DataFrame with station info (id, name, lat, lon, sensors).
+        pd.DataFrame: DataFrame with station info (id, name, lat, lon, altitude, sensors).
     """
     try:
         endpoint = "https://www.agrometeo.ch/backend/api/map/models/17/stations"
@@ -33,13 +33,16 @@ def get_station_data() -> pd.DataFrame:
         response.raise_for_status()
         data = response.json()
 
+        stations = data.get("data", data)
+
         rows = []
-        for station in data:
+        for station in stations:
             rows.append({
                 "id": station["id"],
                 "name": station.get("name", ""),
-                "lat": station.get("lat"),
-                "lon": station.get("lng"),
+                "lat": float(station.get("lat_dec", 0)),
+                "lon": float(station.get("long_dec", 0)),
+                "altitude": station.get("altitude"),
                 "sensors": [s["id"] for s in station.get("sensors", [])],
             })
 
@@ -127,9 +130,9 @@ def download_data(
     sensor_param = "%2C".join(sensor_ids)
 
     url = (
-        f"https://www.agrometeo.ch/backend/api/meteo/station/{station_id}"
-        f"/overview?from={start_date}&to={end_date}"
-        f"&sensors={sensor_param}&scale=hour&groupBy=station"
+        f"https://www.agrometeo.ch/backend/api/meteo/data"
+        f"?stations={station_id}&from={start_date}&to={end_date}"
+        f"&sensors={sensor_param}&scale=hour"
     )
 
     try:
@@ -140,22 +143,27 @@ def download_data(
         raise ValueError(f"Error downloading agrometeo data: {e}") from e
 
     try:
-        rows = []
-        for entry in data.get("data", []):
-            row = {"datetime": entry.get("date")}
-            for sensor_data in entry.get("sensors", []):
-                sid = sensor_data.get("id")
-                # Reverse lookup sensor name from id
-                name = next(
-                    (k for k, v in SENSOR_MAP.items() if v == sid), str(sid)
-                )
-                row[name] = sensor_data.get("avg")
-            rows.append(row)
+        entries = data.get("data", [])
+        if not entries:
+            return pd.DataFrame()
 
-        df = pd.DataFrame(rows)
-        if not df.empty and "datetime" in df.columns:
-            df["datetime"] = pd.to_datetime(df["datetime"])
-            df = df.set_index("datetime")
+        df = pd.DataFrame(entries)
+        df = df.rename(columns={"date": "datetime"})
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.set_index("datetime")
+
+        # Rename columns from "{station_id}_{sensor_id}_{agg}" to sensor names
+        rename_map = {}
+        for col in df.columns:
+            for sensor_name, sensor_id in SENSOR_MAP.items():
+                if f"_{sensor_id}_" in col:
+                    rename_map[col] = sensor_name
+                    break
+        df = df.rename(columns=rename_map)
+
+        # Convert to numeric
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
         logger.info(
             "Downloaded %d rows for station %d (%s to %s)",
@@ -173,7 +181,8 @@ def download_data_by_plz(
     sensors: list = None,
 ) -> pd.DataFrame:
     """
-    Downloads hourly weather data from agrometeo.ch for the nearest station to a Swiss postal code.
+    Downloads hourly weather data from agrometeo.ch for the nearest station
+    to a Swiss postal code.
 
     For each requested sensor type, finds the nearest station that has that sensor
     and merges all results into a single DataFrame.
