@@ -1661,6 +1661,433 @@ def plot_decomposition(
     return fig
 
 
+def plot_timeseries(
+    data: pd.DataFrame,
+    columns: Optional[List[str]] = None,
+    title: str = "Time Series",
+    ylab: str = "Value",
+    range_slider: bool = True,
+    height: int = 400,
+) -> go.Figure:
+    """
+    Create an interactive line plot with an optional range slider.
+
+    Supports plotting one or multiple columns from a DataFrame with a
+    DatetimeIndex.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and one or more value columns.
+        columns: Columns to plot. If *None*, plots all columns.
+        title: Plot title.
+        ylab: Y-axis label.
+        range_slider: Show a range slider below the plot. Default True.
+        height: Figure height in pixels. Default 400.
+
+    Returns:
+        go.Figure: Plotly figure with line traces and optional range slider.
+    """
+    import plotly.express as px
+
+    df = data.copy()
+
+    if columns is None:
+        columns = list(df.columns)
+
+    fig = px.line(df, y=columns, title=title)
+
+    if range_slider:
+        fig.update_xaxes(rangeslider_visible=True)
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=height,
+        yaxis_title=ylab,
+        legend_title="Sensor",
+    )
+
+    return fig
+
+
+def plot_distribution(
+    data: pd.DataFrame,
+    columns: Optional[List[str]] = None,
+    nbins: int = 50,
+    opacity: float = 0.6,
+    title: str = "Distribution",
+    xlab: str = "Value",
+) -> go.Figure:
+    """
+    Create overlaid histograms for one or more columns.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and one or more value columns.
+        columns: Columns to include. If *None*, uses all columns.
+        nbins: Number of histogram bins. Default 50.
+        opacity: Bar opacity. Default 0.6.
+        title: Plot title.
+        xlab: X-axis label.
+
+    Returns:
+        go.Figure: Plotly histogram figure.
+    """
+    import plotly.express as px
+
+    df = data.copy()
+
+    if columns is None:
+        columns = list(df.columns)
+
+    df_melt = df[columns].melt(var_name="variable", value_name="value")
+
+    fig = px.histogram(
+        df_melt,
+        x="value",
+        color="variable",
+        barmode="overlay",
+        opacity=opacity,
+        nbins=nbins,
+        labels={"value": xlab, "variable": "Sensor"},
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+    )
+
+    return fig
+
+
+def plot_boxplot(
+    data: pd.DataFrame,
+    column: Optional[str] = None,
+    groupby: str = "month",
+    title: Optional[str] = None,
+    ylab: str = "Value",
+) -> go.Figure:
+    """
+    Create a box plot grouped by a time unit extracted from the DatetimeIndex.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and one or more value columns.
+        column: Column to plot. If *None*, uses the first column.
+        groupby: Time grouping — ``"month"``, ``"hour"``, ``"weekday"``,
+            or ``"quarter"``. Default ``"month"``.
+        title: Plot title. Auto-generated if *None*.
+        ylab: Y-axis label.
+
+    Returns:
+        go.Figure: Plotly box plot figure.
+    """
+    import plotly.express as px
+
+    df = data.copy()
+
+    if column is None:
+        column = df.columns[0]
+
+    group_map = {
+        "month": ("month", df.index.month),
+        "hour": ("hour", df.index.hour),
+        "weekday": ("weekday", df.index.dayofweek),
+        "quarter": ("quarter", df.index.quarter),
+    }
+
+    if groupby not in group_map:
+        raise ValueError(
+            f"groupby must be one of {list(group_map.keys())}, got '{groupby}'"
+        )
+
+    label, values = group_map[groupby]
+    df[label] = values
+
+    if title is None:
+        title = f"{column} by {groupby.title()}"
+
+    fig = px.box(
+        df,
+        x=label,
+        y=column,
+        labels={column: ylab, label: groupby.title()},
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+    )
+
+    return fig
+
+
+def plot_outliers(
+    data: pd.DataFrame,
+    column: Optional[str] = None,
+    multiplier: float = 1.5,
+    title: Optional[str] = None,
+    ylab: str = "Value",
+    height: int = 400,
+) -> go.Figure:
+    """
+    Visualize IQR-based outliers on a time series plot.
+
+    Plots the time series as a line with outlier points highlighted in red
+    and dashed horizontal lines at the IQR fences.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and one or more value columns.
+        column: Column to analyse. If *None*, uses the first column.
+        multiplier: IQR multiplier for the fence. Default 1.5.
+        title: Plot title. Auto-generated if *None*.
+        ylab: Y-axis label.
+        height: Figure height in pixels. Default 400.
+
+    Returns:
+        go.Figure: Plotly figure with time series, outlier markers, and fences.
+    """
+    from pyedautils.data_quality import calc_outliers
+
+    if column is None:
+        column = data.columns[0]
+
+    result = calc_outliers(data, column=column, multiplier=multiplier)
+
+    if title is None:
+        title = (
+            f"{column} — Outlier Detection (IQR×{multiplier})"
+            f"  [{result['count']} outliers, {result['percentage']}%]"
+        )
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=data.index,
+        y=data[column],
+        mode="lines",
+        name="Normal",
+        line=dict(width=0.5),
+    ))
+
+    outliers = result["outliers"]
+    if not outliers.empty:
+        fig.add_trace(go.Scatter(
+            x=outliers.index,
+            y=outliers[column],
+            mode="markers",
+            name="Outlier",
+            marker=dict(color="red", size=4),
+        ))
+
+    fig.add_hline(
+        y=result["upper"],
+        line_dash="dash",
+        line_color="orange",
+        annotation_text=f"Upper: {result['upper']:.1f}",
+    )
+    fig.add_hline(
+        y=result["lower"],
+        line_dash="dash",
+        line_color="orange",
+        annotation_text=f"Lower: {result['lower']:.1f}",
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        yaxis_title=ylab,
+        height=height,
+    )
+
+    return fig
+
+
+def plot_correlation(
+    data: pd.DataFrame,
+    color_scale: str = "RdBu_r",
+    text_format: str = ".2f",
+    title: str = "Correlation Matrix",
+    height: int = 500,
+    width: int = 600,
+) -> go.Figure:
+    """
+    Create a correlation matrix heatmap.
+
+    Args:
+        data: DataFrame with numeric columns (DatetimeIndex is ignored).
+        color_scale: Plotly colorscale name. Default ``"RdBu_r"``.
+        text_format: Number format for cell annotations. Default ``".2f"``.
+        title: Plot title.
+        height: Figure height in pixels. Default 500.
+        width: Figure width in pixels. Default 600.
+
+    Returns:
+        go.Figure: Plotly heatmap figure of the correlation matrix.
+    """
+    import plotly.express as px
+
+    corr = data.corr()
+
+    fig = px.imshow(
+        corr,
+        text_auto=text_format,
+        color_continuous_scale=color_scale,
+        zmin=-1,
+        zmax=1,
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=height,
+        width=width,
+    )
+
+    return fig
+
+
+def plot_scatter(
+    data: pd.DataFrame,
+    x_column: Optional[str] = None,
+    y_column: Optional[str] = None,
+    opacity: float = 0.2,
+    title: Optional[str] = None,
+    xlab: Optional[str] = None,
+    ylab: Optional[str] = None,
+) -> go.Figure:
+    """
+    Create a scatter plot of two variables.
+
+    Low default opacity helps reveal density in large datasets.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and at least two value columns.
+        x_column: Column for the x-axis. If *None*, uses the first column.
+        y_column: Column for the y-axis. If *None*, uses the second column.
+        opacity: Marker opacity. Default 0.2.
+        title: Plot title. Auto-generated if *None*.
+        xlab: X-axis label. Defaults to the column name.
+        ylab: Y-axis label. Defaults to the column name.
+
+    Returns:
+        go.Figure: Plotly scatter plot figure.
+    """
+    import plotly.express as px
+
+    cols = list(data.columns)
+    if x_column is None:
+        x_column = cols[0]
+    if y_column is None:
+        y_column = cols[1]
+    if xlab is None:
+        xlab = x_column
+    if ylab is None:
+        ylab = y_column
+    if title is None:
+        title = f"{x_column} vs. {y_column}"
+
+    fig = px.scatter(
+        data,
+        x=x_column,
+        y=y_column,
+        opacity=opacity,
+        labels={x_column: xlab, y_column: ylab},
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+    )
+
+    return fig
+
+
+def plot_autocorrelation(
+    data: pd.DataFrame,
+    column: Optional[str] = None,
+    lags: int = 168,
+    title: Optional[str] = None,
+    height: int = 300,
+) -> go.Figure:
+    """
+    Create an autocorrelation plot with a confidence band using Plotly.
+
+    Args:
+        data: DataFrame with a DatetimeIndex and one or more value columns.
+        column: Column to analyse. If *None*, uses the first column.
+        lags: Number of lags to compute. Default 168 (one week at hourly).
+        title: Plot title. Auto-generated if *None*.
+        height: Figure height in pixels. Default 300.
+
+    Returns:
+        go.Figure: Plotly bar chart of autocorrelation values with a
+        95% confidence band.
+    """
+    import numpy as np
+    from statsmodels.tsa.stattools import acf
+
+    df = data.copy()
+
+    if column is None:
+        column = df.columns[0]
+
+    series = df[column].interpolate(limit=6).dropna()
+    acf_values, confint = acf(series, nlags=lags, alpha=0.05)
+
+    if title is None:
+        title = f"Autocorrelation — {column}"
+
+    lag_axis = np.arange(len(acf_values))
+    ci_lower = confint[:, 0] - acf_values
+    ci_upper = confint[:, 1] - acf_values
+
+    fig = go.Figure()
+
+    # Confidence band
+    fig.add_trace(go.Scatter(
+        x=np.concatenate([lag_axis, lag_axis[::-1]]),
+        y=np.concatenate([ci_upper, ci_lower[::-1]]),
+        fill="toself",
+        fillcolor="rgba(135,206,250,0.3)",
+        line=dict(color="rgba(135,206,250,0)"),
+        name="95% CI",
+        showlegend=False,
+    ))
+
+    # ACF bars
+    fig.add_trace(go.Bar(
+        x=lag_axis,
+        y=acf_values,
+        marker_color="steelblue",
+        width=1.0,
+        name="ACF",
+        showlegend=False,
+    ))
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=height,
+        xaxis_title="Lag",
+        yaxis_title="Autocorrelation",
+        yaxis_range=[-1, 1],
+    )
+
+    return fig
+
+
 def _load_d3_js():
     """Load bundled D3.js source files for the Mollier diagram."""
     from importlib import resources as _res

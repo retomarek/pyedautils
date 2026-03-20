@@ -1,6 +1,6 @@
 """Functions for detecting and visualizing gaps in time series data."""
 
-from typing import Optional
+from typing import Dict, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -180,3 +180,98 @@ def plot_missing_values(
     )
 
     return fig
+
+
+def plot_missing_values_heatmap(
+    df: pd.DataFrame,
+    title: str = "Missing Values Over Time",
+    height: int = 300,
+    color_scale: Optional[list] = None,
+) -> go.Figure:
+    """
+    Show a heatmap of missing values across all columns.
+
+    Each row represents a column, each position along the x-axis a timestamp.
+    Red cells indicate missing (NaN) values, white cells indicate present values.
+
+    Args:
+        df: DataFrame with a DatetimeIndex and one or more value columns.
+        title: Plot title.
+        height: Figure height in pixels. Default 300.
+        color_scale: Two-element color scale list. Default ``["white", "red"]``.
+
+    Returns:
+        go.Figure: Plotly heatmap figure.
+    """
+    import plotly.express as px
+
+    if color_scale is None:
+        color_scale = ["white", "red"]
+
+    na_pct = (df.isna().mean() * 100).round(1)
+    subtitle = f"{na_pct.mean():.1f}% missing on average"
+
+    fig = px.imshow(
+        df.isna().astype(int).T,
+        aspect="auto",
+        color_continuous_scale=color_scale,
+        labels=dict(x="Time", y="Sensor"),
+    )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b><br><sup>{subtitle}</sup>",
+        title_font=dict(size=20),
+        title_x=0.5,
+        template="plotly_white",
+        height=height,
+        coloraxis_showscale=False,
+    )
+
+    return fig
+
+
+def calc_outliers(
+    df: pd.DataFrame,
+    column: Optional[str] = None,
+    multiplier: float = 1.5,
+) -> Dict:
+    """
+    Detect outliers using the IQR method.
+
+    Computes the interquartile range and flags values outside
+    [Q1 - multiplier*IQR, Q3 + multiplier*IQR].
+
+    Args:
+        df: DataFrame with a DatetimeIndex.
+        column: Column to analyse. If *None*, uses the first column.
+        multiplier: IQR multiplier for the fence. Default 1.5.
+
+    Returns:
+        Dict with keys:
+
+        - ``lower`` (float): Lower fence value.
+        - ``upper`` (float): Upper fence value.
+        - ``outliers`` (pd.DataFrame): Rows flagged as outliers.
+        - ``count`` (int): Number of outliers.
+        - ``percentage`` (float): Percentage of outliers.
+    """
+    if column is None:
+        column = df.columns[0]
+
+    series = df[column].dropna()
+    q1 = series.quantile(0.25)
+    q3 = series.quantile(0.75)
+    iqr = q3 - q1
+    lower = q1 - multiplier * iqr
+    upper = q3 + multiplier * iqr
+
+    mask = (df[column] < lower) | (df[column] > upper)
+    outlier_df = df[mask]
+
+    return {
+        "lower": lower,
+        "upper": upper,
+        "outliers": outlier_df,
+        "count": len(outlier_df),
+        "percentage": round(len(outlier_df) / len(df) * 100, 2) if len(df) > 0 else 0.0,
+    }
