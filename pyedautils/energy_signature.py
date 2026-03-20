@@ -121,7 +121,7 @@ def compute_pes(
         # === P_dhw (Section 3.2.3) ===
         # Mean of all hourly power where T_oa > Tb, minus P_dhwc
         warm_hours = df[df["outside_temp"] > tb]
-        if warm_hours.empty:
+        if warm_hours.empty:  # pragma: no cover — guarded by warm_days check above
             p_dhw = 0.0
         else:
             p_dhw = warm_hours["power"].mean() - p_dhwc

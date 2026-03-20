@@ -145,5 +145,56 @@ class TestPlotMissingValues(unittest.TestCase):
         self.assertIn("100.0%", fig.layout.title.text)
 
 
+class TestPlotMissingValuesHeatmap(unittest.TestCase):
+    def test_returns_figure(self):
+        from pyedautils.data_quality import plot_missing_values_heatmap
+        idx = pd.date_range("2024-01-01", periods=100, freq="min")
+        values = list(range(100))
+        values[40:50] = [np.nan] * 10
+        df = pd.DataFrame({"temp": values, "hum": values[::-1]}, index=idx)
+        fig = plot_missing_values_heatmap(df)
+        self.assertIsInstance(fig, go.Figure)
+
+    def test_custom_params(self):
+        from pyedautils.data_quality import plot_missing_values_heatmap
+        idx = pd.date_range("2024-01-01", periods=50, freq="min")
+        df = pd.DataFrame({"a": [np.nan] * 50}, index=idx)
+        fig = plot_missing_values_heatmap(
+            df, title="Custom", height=200, color_scale=["blue", "yellow"]
+        )
+        self.assertIn("Custom", fig.layout.title.text)
+
+
+class TestCalcOutliers(unittest.TestCase):
+    def test_returns_dict(self):
+        from pyedautils.data_quality import calc_outliers
+        idx = pd.date_range("2024-01-01", periods=100, freq="h")
+        np.random.seed(42)
+        values = np.random.normal(20, 2, 100).tolist()
+        values[50] = 100  # outlier
+        df = pd.DataFrame({"temp": values}, index=idx)
+        result = calc_outliers(df)
+        self.assertIn("lower", result)
+        self.assertIn("upper", result)
+        self.assertIn("outliers", result)
+        self.assertIn("count", result)
+        self.assertIn("percentage", result)
+        self.assertGreater(result["count"], 0)
+
+    def test_default_column(self):
+        from pyedautils.data_quality import calc_outliers
+        idx = pd.date_range("2024-01-01", periods=50, freq="h")
+        df = pd.DataFrame({"a": range(50), "b": range(50)}, index=idx)
+        result = calc_outliers(df)
+        self.assertIsNotNone(result["lower"])
+
+    def test_explicit_column(self):
+        from pyedautils.data_quality import calc_outliers
+        idx = pd.date_range("2024-01-01", periods=50, freq="h")
+        df = pd.DataFrame({"a": range(50), "b": range(50)}, index=idx)
+        result = calc_outliers(df, column="b", multiplier=2.0)
+        self.assertIsNotNone(result["lower"])
+
+
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover

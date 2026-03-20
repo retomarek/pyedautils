@@ -12,6 +12,9 @@ from pyedautils.plots import (
     plot_seasonal_before_after, plot_seasonal_polar,
     plot_sum_frequency,
     plot_comfort_sia180, plot_comfort_temp_humidity,
+    plot_timeseries, plot_distribution, plot_boxplot,
+    plot_outliers, plot_correlation, plot_scatter,
+    plot_autocorrelation,
 )
 
 
@@ -546,6 +549,208 @@ class TestPlotDecomposition(unittest.TestCase):
 
     def test_auto_period_15min(self):
         fig = plot_decomposition(self.df_short)
+        self.assertEqual(len(fig.data), 4)
+
+
+def _make_ts_dataframe(n=200, freq='h', seed=42):
+    """Create a DataFrame with DatetimeIndex and two value columns."""
+    idx = pd.date_range("2024-01-01", periods=n, freq=freq)
+    np.random.seed(seed)
+    return pd.DataFrame({
+        "temp": np.random.normal(20, 5, n),
+        "humidity": np.random.normal(50, 10, n),
+    }, index=idx)
+
+
+class TestPlotTimeseries(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        fig = plot_timeseries(df)
+        self.assertIsNotNone(fig)
+
+    def test_custom_columns(self):
+        df = _make_ts_dataframe()
+        fig = plot_timeseries(df, columns=["temp"])
+        self.assertIsNotNone(fig)
+
+    def test_no_range_slider(self):
+        df = _make_ts_dataframe()
+        fig = plot_timeseries(df, range_slider=False)
+        self.assertIsNotNone(fig)
+
+
+class TestPlotDistribution(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        fig = plot_distribution(df)
+        self.assertIsNotNone(fig)
+
+    def test_custom_columns(self):
+        df = _make_ts_dataframe()
+        fig = plot_distribution(df, columns=["temp"])
+        self.assertIsNotNone(fig)
+
+
+class TestPlotBoxplot(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df)
+        self.assertIsNotNone(fig)
+
+    def test_groupby_hour(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df, groupby="hour")
+        self.assertIsNotNone(fig)
+
+    def test_groupby_weekday(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df, groupby="weekday")
+        self.assertIsNotNone(fig)
+
+    def test_groupby_quarter(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df, groupby="quarter")
+        self.assertIsNotNone(fig)
+
+    def test_invalid_groupby(self):
+        df = _make_ts_dataframe()
+        with self.assertRaises(ValueError):
+            plot_boxplot(df, groupby="year")
+
+    def test_custom_title(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df, title="Custom Box")
+        self.assertIn("Custom Box", fig.layout.title.text)
+
+    def test_default_column(self):
+        df = _make_ts_dataframe()
+        fig = plot_boxplot(df)
+        self.assertIsNotNone(fig)
+
+
+class TestPlotOutliers(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        # Add an outlier
+        df.iloc[0, 0] = 200
+        fig = plot_outliers(df)
+        self.assertIsNotNone(fig)
+
+    def test_custom_params(self):
+        df = _make_ts_dataframe()
+        df.iloc[0, 0] = 200
+        fig = plot_outliers(df, column="temp", multiplier=1.0,
+                            title="Custom Outliers", ylab="°C")
+        self.assertIn("Custom Outliers", fig.layout.title.text)
+
+
+class TestPlotCorrelation(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        fig = plot_correlation(df)
+        self.assertIsNotNone(fig)
+
+
+class TestPlotScatter(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe()
+        fig = plot_scatter(df)
+        self.assertIsNotNone(fig)
+
+    def test_custom_columns(self):
+        df = _make_ts_dataframe()
+        fig = plot_scatter(df, x_column="temp", y_column="humidity",
+                           title="Custom", xlab="T", ylab="RH")
+        self.assertIn("Custom", fig.layout.title.text)
+
+
+class TestPlotAutocorrelation(unittest.TestCase):
+    def test_returns_figure(self):
+        df = _make_ts_dataframe(n=500)
+        fig = plot_autocorrelation(df, lags=48)
+        self.assertIsNotNone(fig)
+
+    def test_custom_title(self):
+        df = _make_ts_dataframe(n=500)
+        fig = plot_autocorrelation(df, lags=48, title="Custom ACF")
+        self.assertIn("Custom ACF", fig.layout.title.text)
+
+
+@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+class TestPlotEmptySeasonBranches(unittest.TestCase):
+    """Cover the `if subset.empty: continue` branches in season loops."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Data for only January (Winter) — Spring/Summer/Fall will be empty
+        timestamps = pd.date_range('2023-01-01', '2023-01-31 23:00', freq='h')
+        np.random.seed(42)
+        n = len(timestamps)
+        cls.df_simple = pd.DataFrame({
+            'timestamp': timestamps,
+            'temperature': np.random.normal(5, 3, n),
+            'value': np.random.uniform(10, 50, n),
+        })
+        cls.df_th = pd.DataFrame({
+            'timestamp': timestamps,
+            'temperature': np.random.normal(20, 2, n),
+            'humidity': np.random.normal(50, 5, n),
+        })
+
+    def test_energy_signature_missing_seasons(self, _mock):
+        fig = plot_energy_signature(self.df_simple)
+        self.assertIsNotNone(fig)
+
+    def test_density_seasons_missing_seasons(self, _mock):
+        fig = plot_density_seasons(self.df_simple[["timestamp", "value"]])
+        self.assertIsNotNone(fig)
+
+    def test_comfort_sia180_missing_seasons(self, _mock):
+        fig = plot_comfort_sia180(
+            self.df_simple[["timestamp", "temperature"]].rename(
+                columns={"temperature": "value"}
+            ),
+            self.df_simple[["timestamp", "value"]],
+        )
+        self.assertIsNotNone(fig)
+
+    def test_comfort_temp_humidity_missing_seasons(self, _mock):
+        fig = plot_comfort_temp_humidity(self.df_th)
+        self.assertIsNotNone(fig)
+
+    @patch('pyedautils.energy_signature.compute_pes')
+    def test_energy_signature_pes_missing_seasons(self, mock_pes, _mock):
+        from pyedautils.energy_signature import PESResult
+        mock_pes.return_value = PESResult(
+            tb=15.0, q_tot=0.5, p_dhwc=1.0, p_dhw=2.0, p_ihg=0.0,
+        )
+        # Only January data -> Spring/Summer/Fall empty
+        df_pes = pd.DataFrame({
+            'timestamp': self.df_simple['timestamp'],
+            'outside_temp': self.df_simple['temperature'],
+            'power': self.df_simple['value'],
+            'room_temp': np.full(len(self.df_simple), 21.0),
+        })
+        fig = plot_energy_signature_pes(df_pes)
+        self.assertIsNotNone(fig)
+
+
+class TestPlotDecompositionAutoDetect(unittest.TestCase):
+    """Test auto-detection of period for hourly and daily data."""
+
+    def test_auto_period_hourly(self):
+        # Hourly data -> period=24
+        df = _make_synthetic_data(n_days=60, freq='h')
+        fig = plot_decomposition(df)
+        self.assertEqual(len(fig.data), 4)
+
+    def test_auto_period_daily(self):
+        # Daily data -> period=7
+        timestamps = pd.date_range("2023-01-01", periods=365, freq='D')
+        np.random.seed(42)
+        values = np.random.rand(365) * 100
+        df = pd.DataFrame({'timestamp': timestamps, 'value': values})
+        fig = plot_decomposition(df)
         self.assertEqual(len(fig.data), 4)
 
 

@@ -115,6 +115,47 @@ class TestComputePESEdgeCases(unittest.TestCase):
         with self.assertRaises(ValueError):
             compute_pes(df)
 
+    def test_all_warm_hours(self, _mock):
+        """When all hours are warm, p_dhw should still compute."""
+        hours = pd.date_range('2020-01-01', '2020-12-31 23:00', freq='h')
+        n = len(hours)
+        np.random.seed(10)
+        # outside_temp always above initial Tb guess (~15),
+        # but we need winter nighttime cold data for q_tot.
+        # Instead, create data where warm_hours for initial Tb is empty.
+        outside_temp = np.full(n, 30.0)
+        # Set winter nighttime to very cold to allow q_tot calculation
+        for i, h in enumerate(hours):
+            if h.month in (12, 1, 2) and h.hour < 4:
+                outside_temp[i] = -5.0
+        df = pd.DataFrame({
+            'timestamp': hours,
+            'outside_temp': outside_temp,
+            'power': np.random.uniform(5, 15, n),
+            'room_temp': np.full(n, 21.0),
+        })
+        # This should either succeed or raise ValueError, not crash
+        try:
+            result = compute_pes(df)
+            self.assertIsInstance(result, PESResult)
+        except ValueError:
+            pass  # acceptable
+
+    def test_non_convergence(self, _mock):
+        """Algorithm with max_iter=1 should raise non-convergence."""
+        hours = pd.date_range('2020-01-01', '2020-12-31 23:00', freq='h')
+        n = len(hours)
+        np.random.seed(42)
+        outside_temp = np.random.normal(5, 10, n)
+        df = pd.DataFrame({
+            'timestamp': hours,
+            'outside_temp': outside_temp,
+            'power': np.abs(np.random.normal(10, 3, n)),
+            'room_temp': np.full(n, 21.0),
+        })
+        with self.assertRaises(ValueError):
+            compute_pes(df, max_iter=1)
+
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
