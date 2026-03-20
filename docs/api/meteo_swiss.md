@@ -7,7 +7,7 @@ See {doc}`../examples/meteo_swiss` for usage examples.
 ## API Reference
 
 ```{eval-rst}
-.. automodule:: pyedautils.meteo_swiss
+.. automodule:: pyedautils.weather.meteo_swiss
    :members:
    :undoc-members:
    :show-inheritance:

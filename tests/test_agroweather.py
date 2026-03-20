@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from pyedautils.agroweather import (
+from pyedautils.weather.agroweather import (
     get_station_data,
     find_nearest_station,
     download_data,
@@ -50,7 +50,7 @@ MOCK_DOWNLOAD_API = {
 
 class TestGetStationData(unittest.TestCase):
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_returns_dataframe(self, mock_get):
         mock_response = MagicMock()
         mock_response.json.return_value = MOCK_STATIONS_API
@@ -65,7 +65,7 @@ class TestGetStationData(unittest.TestCase):
         self.assertAlmostEqual(result.iloc[0]["lat"], 46.0)
         self.assertAlmostEqual(result.iloc[0]["lon"], 8.9)
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_network_error(self, mock_get):
         mock_get.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
@@ -74,7 +74,7 @@ class TestGetStationData(unittest.TestCase):
 
 class TestFindNearestStation(unittest.TestCase):
 
-    @patch('pyedautils.agroweather.get_station_data')
+    @patch('pyedautils.weather.agroweather.get_station_data')
     def test_find_nearest_temp(self, mock_data):
         mock_data.return_value = pd.DataFrame([
             {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4, 6]},
@@ -84,7 +84,7 @@ class TestFindNearestStation(unittest.TestCase):
         result = find_nearest_station(46.95, 7.45, sensor="temp")
         self.assertEqual(result, 2)
 
-    @patch('pyedautils.agroweather.get_station_data')
+    @patch('pyedautils.weather.agroweather.get_station_data')
     def test_find_nearest_globrad(self, mock_data):
         mock_data.return_value = pd.DataFrame([
             {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4, 6]},
@@ -94,7 +94,7 @@ class TestFindNearestStation(unittest.TestCase):
         result = find_nearest_station(46.0, 8.9, sensor="globrad")
         self.assertEqual(result, 3)
 
-    @patch('pyedautils.agroweather.get_station_data')
+    @patch('pyedautils.weather.agroweather.get_station_data')
     def test_find_nearest_no_sensor_filter(self, mock_data):
         mock_data.return_value = pd.DataFrame([
             {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4, 6]},
@@ -103,7 +103,7 @@ class TestFindNearestStation(unittest.TestCase):
         result = find_nearest_station(46.0, 8.9)
         self.assertEqual(result, 1)
 
-    @patch('pyedautils.agroweather.get_station_data')
+    @patch('pyedautils.weather.agroweather.get_station_data')
     def test_no_station_with_sensor(self, mock_data):
         mock_data.return_value = pd.DataFrame([
             {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4]},
@@ -118,7 +118,7 @@ class TestFindNearestStation(unittest.TestCase):
 
 class TestDownloadData(unittest.TestCase):
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_returns_dataframe(self, mock_get):
         mock_response = MagicMock()
         mock_response.json.return_value = MOCK_DOWNLOAD_API
@@ -131,7 +131,7 @@ class TestDownloadData(unittest.TestCase):
         self.assertIn("temp", result.columns)
         self.assertEqual(result.iloc[0]["temp"], 2.5)
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_default_sensors(self, mock_get):
         mock_response = MagicMock()
         mock_response.json.return_value = {"data": []}
@@ -142,7 +142,7 @@ class TestDownloadData(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
         self.assertTrue(result.empty)
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_empty_data(self, mock_get):
         mock_response = MagicMock()
         mock_response.json.return_value = {"data": []}
@@ -153,13 +153,13 @@ class TestDownloadData(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
         self.assertTrue(result.empty)
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_network_error(self, mock_get):
         mock_get.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
             download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
 
-    @patch('pyedautils.agroweather.requests.get')
+    @patch('pyedautils.weather.agroweather.requests.get')
     def test_parse_error(self, mock_get):
         mock_response = MagicMock()
         mock_response.raise_for_status.return_value = None
@@ -177,9 +177,9 @@ class TestDownloadData(unittest.TestCase):
 
 class TestDownloadDataByPlz(unittest.TestCase):
 
-    @patch('pyedautils.agroweather.download_data')
-    @patch('pyedautils.agroweather.find_nearest_station')
-    @patch('pyedautils.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.download_data')
+    @patch('pyedautils.weather.agroweather.find_nearest_station')
+    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
     def test_returns_dataframe(self, mock_plz, mock_nearest, mock_download):
         mock_plz.return_value = (47.05, 8.31)
         mock_nearest.return_value = 1
@@ -194,9 +194,9 @@ class TestDownloadDataByPlz(unittest.TestCase):
         self.assertEqual(len(result), 2)
         mock_plz.assert_called_once_with(6048)
 
-    @patch('pyedautils.agroweather.download_data')
-    @patch('pyedautils.agroweather.find_nearest_station')
-    @patch('pyedautils.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.download_data')
+    @patch('pyedautils.weather.agroweather.find_nearest_station')
+    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
     def test_merges_multiple_stations(self, mock_plz, mock_nearest, mock_download):
         mock_plz.return_value = (47.05, 8.31)
         mock_nearest.side_effect = [1, 2, 1, 1]
@@ -221,8 +221,8 @@ class TestDownloadDataByPlz(unittest.TestCase):
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
 
-    @patch('pyedautils.agroweather.find_nearest_station')
-    @patch('pyedautils.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.find_nearest_station')
+    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
     def test_empty_sensors_returns_empty(self, mock_plz, mock_nearest):
         mock_plz.return_value = (47.05, 8.31)
         result = download_data_by_plz(6048, "2024-01-01", "2024-01-02", sensors=[])

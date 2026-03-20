@@ -14,12 +14,36 @@ authors = [
 description = "Python Energy Data Analysis Utilities"
 readme = "README.md"
 requires-python = ">=3.9"
+license = {text = "MIT"}
+keywords = ["energy", "data-analysis", "time-series", "building", "comfort", "weather"]
+dependencies = [
+    "ephem>=4.1.2",
+    "pandas>=2.1.4",
+    "geopy>=2.4.1",
+    "requests>=2.31.0",
+    "pgeocode>=0.4.1",
+    "plotly>=5.19.0",
+    "statsmodels>=0.14.0",
+]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "flake8",
+    "coverage",
+    "build",
+]
+test = [
+    "pytest",
+    "coverage",
+]
+
 [project.urls]
 Homepage = "https://github.com/retomarek/pyedautils/"
+Documentation = "https://retomarek.github.io/pyedautils/"
+Repository = "https://github.com/retomarek/pyedautils/"
 Issues = "https://github.com/retomarek/pyedautils/issues"

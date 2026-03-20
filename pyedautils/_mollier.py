@@ -33,7 +33,7 @@ _C = [
 # Scalar helper functions
 # ---------------------------------------------------------------------------
 
-def _p_sat_scalar(t):
+def _p_sat_scalar(t) -> float:
     """Saturation vapour pressure [Pa] for temperature *t* [°C] (scalar)."""
     if t < 0.01:
         return 611.0 * math.exp(
@@ -44,7 +44,7 @@ def _p_sat_scalar(t):
     )
 
 
-def _log_p_sat_scalar(t):
+def _log_p_sat_scalar(t) -> float:
     """log(saturation pressure) — used by Newton solver."""
     if t < 0.01:
         return math.log(611.0) + (
@@ -84,7 +84,7 @@ def p_sat(t):
     return float(result[0]) if scalar else result
 
 
-def temperature_p_sat(p_s):
+def temperature_p_sat(p_s) -> float:
     """Inverse of *p_sat*: temperature [°C] from saturation pressure [Pa].
 
     Uses Newton's method on log(p_sat) for better convergence.
@@ -110,22 +110,22 @@ def temperature_p_sat(p_s):
 # Coordinate functions (scalar)
 # ---------------------------------------------------------------------------
 
-def enthalpy(x, y):
+def enthalpy(x, y) -> float:
     """Enthalpy [kJ/kg] from diagram coordinates (*x*, *y*)."""
     return R_0 * x + C_PL * y
 
 
-def temperature(x, y):
+def temperature(x, y) -> float:
     """Temperature [°C] from diagram coordinates (*x*, *y*)."""
     return (y * C_PL * (1 + x) + R_0 * x**2) / (C_PL + x * C_PW)
 
 
-def rel_humidity(x, y, p):
+def rel_humidity(x, y, p) -> float:
     """Relative humidity [0–1] from diagram coordinates and pressure [Pa]."""
     return x / (K + x) * p / _p_sat_scalar(temperature(x, y))
 
 
-def density(x, y, p):
+def density(x, y, p) -> float:
     """Air density [kg/m³] from diagram coordinates and pressure [Pa]."""
     t = temperature(x, y)
     return p / (R_W * (K_0C + t)) * (1 + x) / (K + x) / 1000
@@ -135,7 +135,7 @@ def density(x, y, p):
 # Coordinate conversions
 # ---------------------------------------------------------------------------
 
-def _t_to_y(t, x):
+def _t_to_y(t, x) -> float:
     """Convert temperature + absolute humidity to y-coordinate."""
     return (t * (C_PL + x * C_PW) - R_0 * x**2) / (C_PL * (1 + x))
 
@@ -164,7 +164,7 @@ def get_x_y_tx(t, x, p):
     return x, y
 
 
-def y_phix(phi, x, p):
+def y_phix(phi, x, p) -> float:
     """y-coordinate from relative humidity, absolute humidity, pressure."""
     t_s = temperature_p_sat(x * p / (phi * (K + x)))
     return (C_PL + x * C_PW) / (C_PL * (1 + x)) * (
@@ -172,7 +172,7 @@ def y_phix(phi, x, p):
     )
 
 
-def x_phiy(phi, y, p):
+def x_phiy(phi, y, p) -> float:
     """Absolute humidity from relative humidity and y-coordinate (Newton)."""
     def _phi_of_x(xv):
         return xv / (K + xv) * p / _p_sat_scalar(temperature(xv, y))
@@ -189,17 +189,17 @@ def x_phiy(phi, y, p):
     raise RuntimeError("x_phiy did not converge")  # pragma: no cover
 
 
-def x_hy(h, y):
+def x_hy(h, y) -> float:
     """Absolute humidity from enthalpy [kJ/kg] and y-coordinate."""
     return (h - C_PL * y) / R_0
 
 
-def y_hx(h, x):
+def y_hx(h, x) -> float:
     """y-coordinate from enthalpy [kJ/kg] and absolute humidity."""
     return (h - R_0 * x) / C_PL
 
 
-def y_rhox(rho, x, p):
+def y_rhox(rho, x, p) -> float:
     """y-coordinate from density [kg/m³], absolute humidity, pressure [Pa]."""
     return (C_PL + x * C_PW) / (C_PL * (1 + x)) * (
         p / (R_W * rho) * (1 + x) / (K + x) * 0.001

@@ -7,7 +7,7 @@ See {doc}`../examples/agroweather` for usage examples.
 ## API Reference
 
 ```{eval-rst}
-.. automodule:: pyedautils.agroweather
+.. automodule:: pyedautils.weather.agroweather
    :members:
    :undoc-members:
    :show-inheritance:

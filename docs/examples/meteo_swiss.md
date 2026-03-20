@@ -5,7 +5,7 @@ See {doc}`../api/meteo_swiss` for the full API reference.
 ## Find the nearest temperature station
 
 ```python
-from pyedautils.meteo_swiss import find_nearest_station
+from pyedautils.weather.meteo_swiss import find_nearest_station
 from pyedautils.geopy import get_coordindates_ch_plz, get_altitude_lat_long
 
 # Get coordinates and altitude for Horw (PLZ 6048)
@@ -33,7 +33,7 @@ print(find_nearest_station(coord[0], coord[1], altitude, sensor="rain"))     # "
 ## Get all station data
 
 ```python
-from pyedautils.meteo_swiss import get_current_station_data
+from pyedautils.weather.meteo_swiss import get_current_station_data
 
 df = get_current_station_data()
 print(f"{len(df)} stations found")

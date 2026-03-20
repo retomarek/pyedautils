@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from pyedautils.meteo_swiss import get_current_station_data, find_nearest_station
+from pyedautils.weather.meteo_swiss import get_current_station_data, find_nearest_station
 
 
 MOCK_STATION_DATA = pd.DataFrame({
@@ -23,14 +23,14 @@ MOCK_STATION_DATA = pd.DataFrame({
 
 class TestGetCurrentStationData(unittest.TestCase):
 
-    @patch('pyedautils.meteo_swiss.pd.read_csv')
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv')
     def test_returns_dataframe(self, mock_read_csv):
         mock_read_csv.return_value = MOCK_STATION_DATA.copy()
         result = get_current_station_data()
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 3)
 
-    @patch('pyedautils.meteo_swiss.pd.read_csv')
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv')
     def test_filters_nan_messungen(self, mock_read_csv):
         data = MOCK_STATION_DATA.copy()
         data.loc[2, "Messungen"] = None
@@ -38,7 +38,7 @@ class TestGetCurrentStationData(unittest.TestCase):
         result = get_current_station_data()
         self.assertEqual(len(result), 2)
 
-    @patch('pyedautils.meteo_swiss.pd.read_csv')
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv')
     def test_network_error(self, mock_read_csv):
         mock_read_csv.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
@@ -47,26 +47,26 @@ class TestGetCurrentStationData(unittest.TestCase):
 
 class TestFindNearestStation(unittest.TestCase):
 
-    @patch('pyedautils.meteo_swiss.get_current_station_data')
+    @patch('pyedautils.weather.meteo_swiss.get_current_station_data')
     def test_find_temp_station(self, mock_data):
         mock_data.return_value = MOCK_STATION_DATA.copy()
         result = find_nearest_station(47.01, 8.30, 450, sensor="temp")
         self.assertEqual(result, "LUZ")
 
-    @patch('pyedautils.meteo_swiss.get_current_station_data')
+    @patch('pyedautils.weather.meteo_swiss.get_current_station_data')
     def test_find_globrad_station(self, mock_data):
         mock_data.return_value = MOCK_STATION_DATA.copy()
         # From coordinates near Bantiger altitude range
         result = find_nearest_station(46.97, 7.53, 950, sensor="globrad")
         self.assertEqual(result, "BAN")
 
-    @patch('pyedautils.meteo_swiss.get_current_station_data')
+    @patch('pyedautils.weather.meteo_swiss.get_current_station_data')
     def test_find_relhum_station(self, mock_data):
         mock_data.return_value = MOCK_STATION_DATA.copy()
         result = find_nearest_station(47.01, 8.30, 450, sensor="relhum")
         self.assertEqual(result, "LUZ")
 
-    @patch('pyedautils.meteo_swiss.get_current_station_data')
+    @patch('pyedautils.weather.meteo_swiss.get_current_station_data')
     def test_find_rain_station(self, mock_data):
         mock_data.return_value = MOCK_STATION_DATA.copy()
         result = find_nearest_station(47.01, 8.30, 450, sensor="rain")
@@ -84,7 +84,7 @@ class TestFindNearestStation(unittest.TestCase):
         with self.assertRaises(TypeError):
             find_nearest_station(47.0, 8.3, 450)
 
-    @patch('pyedautils.meteo_swiss.get_current_station_data')
+    @patch('pyedautils.weather.meteo_swiss.get_current_station_data')
     def test_no_station_in_altitude_range(self, mock_data):
         mock_data.return_value = MOCK_STATION_DATA.copy()
         # altitude=2000 won't match any station (max is 942)
