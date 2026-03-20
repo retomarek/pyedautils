@@ -109,6 +109,15 @@ class TestFindNearestStation(unittest.TestCase):
         result = find_nearest_station(46.0, 8.9)
         self.assertEqual(result, 1)
 
+    @patch('pyedautils.agroweather.get_station_data')
+    def test_no_station_with_sensor(self, mock_data):
+        # All stations lack globrad (11)
+        mock_data.return_value = pd.DataFrame([
+            {"id": 1, "name": "Agraro", "lat": 46.0, "lon": 8.9, "sensors": [1, 4]},
+        ])
+        with self.assertRaises(ValueError):
+            find_nearest_station(46.0, 8.9, sensor="globrad")
+
     def test_invalid_sensor_type(self):
         with self.assertRaises(ValueError):
             find_nearest_station(47.0, 8.3, sensor="windspeed")
@@ -133,6 +142,34 @@ class TestDownloadData(unittest.TestCase):
         mock_get.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
             download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
+
+    @patch('pyedautils.agroweather.requests.get')
+    def test_default_sensors(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = download_data(1, "2024-01-01", "2024-01-02")
+        self.assertIsInstance(result, pd.DataFrame)
+        # Verify URL contains all 4 default sensor IDs
+        call_url = mock_get.call_args[0][0]
+        self.assertIn("1", call_url)
+        self.assertIn("11", call_url)
+        self.assertIn("4", call_url)
+        self.assertIn("6", call_url)
+
+    @patch('pyedautils.agroweather.requests.get')
+    def test_parse_error(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        # Return data that will cause a parse error (missing "data" key with bad structure)
+        mock_response.json.return_value = {"data": [{"date": None, "sensors": "bad"}]}
+        mock_get.return_value = mock_response
+
+        with self.assertRaises(ValueError) as ctx:
+            download_data(1, "2024-01-01", "2024-01-02", sensors=["temp"])
+        self.assertIn("parsing", str(ctx.exception))
 
     def test_invalid_sensor(self):
         with self.assertRaises(ValueError):
@@ -185,6 +222,14 @@ class TestDownloadDataByPlz(unittest.TestCase):
         result = download_data_by_plz(6048, "2024-01-01", "2024-01-02")
         self.assertIsInstance(result, pd.DataFrame)
         self.assertEqual(len(result), 2)
+
+    @patch('pyedautils.agroweather.find_nearest_station')
+    @patch('pyedautils.agroweather.get_coordindates_ch_plz')
+    def test_empty_sensors_returns_empty(self, mock_plz, mock_nearest):
+        mock_plz.return_value = (47.05, 8.31)
+        result = download_data_by_plz(6048, "2024-01-01", "2024-01-02", sensors=[])
+        self.assertIsInstance(result, pd.DataFrame)
+        self.assertTrue(result.empty)
 
 
 if __name__ == '__main__':
