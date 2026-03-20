@@ -46,10 +46,10 @@ def get_season(
         return date.apply(lambda x: get_season(x, hemisphere, labels, tracking_type))
 
     if tracking_type == TYPE_ASTRONOMICAL:
-        spring_start = ephem.next_equinox(str(date.year)).datetime()
-        summer_start = ephem.next_solstice(str(date.year)).datetime()
-        autumn_start = ephem.next_equinox(spring_start).datetime()
-        winter_start = ephem.next_solstice(summer_start).datetime()
+        spring_start = ephem.next_equinox(str(date.year)).datetime().replace(tzinfo=None)
+        summer_start = ephem.next_solstice(str(date.year)).datetime().replace(tzinfo=None)
+        autumn_start = ephem.next_equinox(spring_start).datetime().replace(tzinfo=None)
+        winter_start = ephem.next_solstice(summer_start).datetime().replace(tzinfo=None)
     else:
         spring_start = datetime(date.year, 3, 1)
         summer_start = datetime(date.year, 6, 1)
