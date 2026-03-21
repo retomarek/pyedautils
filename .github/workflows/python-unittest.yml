@@ -30,7 +30,7 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -51,7 +51,7 @@ jobs:
         python -m coverage report
     - name: Upload coverage reports to Codecov
       if: matrix.python-version == '3.12'
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: retomarek/pyedautils
