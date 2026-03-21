@@ -11,8 +11,10 @@ chapters:
       - file: api/geopy
       - file: api/plots
       - file: api/season
-      - file: api/meteo_swiss
-      - file: api/agroweather
+      - file: api/weather
+        sections:
+          - file: api/meteo_swiss
+          - file: api/agroweather
 
   - file: examples/index
     sections:
@@ -32,5 +34,7 @@ chapters:
           - file: examples/sum_frequency
           - file: examples/comfort
       - file: examples/season
-      - file: examples/meteo_swiss
-      - file: examples/agroweather
+      - file: examples/weather
+        sections:
+          - file: examples/meteo_swiss
+          - file: examples/agroweather

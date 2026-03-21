@@ -6,4 +6,4 @@ Usage examples for all pyedautils modules. See {doc}`../api/index` for the full 
 - {doc}`geopy` — Geocoding, coordinate conversion, altitude lookup
 - {doc}`plots` — Visualizations (Daily Profiles, Mollier h,x-diagram)
 - {doc}`season` — Season detection (astronomical and meteorological)
-- {doc}`meteo_swiss` — Find nearest MeteoSwiss weather station
+- {doc}`weather` — Swiss weather data (MeteoSwiss, Agrometeo.ch)
