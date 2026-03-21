@@ -13,7 +13,7 @@
 ## Quick start
 
 ```python
-from pyedautils.season import get_season
+from pyedautils.data_prep.season import get_season
 from datetime import datetime
 
 season = get_season(datetime(2024, 7, 15))

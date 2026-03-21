@@ -32,7 +32,7 @@ def plot_energy_signature(
     Returns:
         go.Figure: Plotly figure with the scatter plot.
     """
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 
@@ -118,7 +118,7 @@ def plot_energy_signature_pes(
         go.Figure: Plotly figure with scatter and regression lines.
     """
     from pyedautils.energy_signature import compute_pes
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 

@@ -10,7 +10,9 @@ chapters:
       - file: api/data_quality
       - file: api/geopy
       - file: api/plots
-      - file: api/season
+      - file: api/data_prep
+        sections:
+          - file: api/season
       - file: api/weather
         sections:
           - file: api/meteo_swiss
@@ -33,7 +35,9 @@ chapters:
           - file: examples/seasonal
           - file: examples/sum_frequency
           - file: examples/comfort
-      - file: examples/season
+      - file: examples/data_prep
+        sections:
+          - file: examples/season
       - file: examples/weather
         sections:
           - file: examples/meteo_swiss

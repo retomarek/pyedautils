@@ -61,7 +61,7 @@ class TestPlots(unittest.TestCase):
         self.assertTrue(self.fig._data[111]["x"][23] == 23)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotDailyProfilesOverviewCustomParams(unittest.TestCase):
     """Tests for plot_daily_profiles_overview with custom parameters.
     Uses fast mocked season detection."""
@@ -104,7 +104,7 @@ class TestPlotDailyProfilesOverviewCustomParams(unittest.TestCase):
             self.assertIn(day, annotations)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotDailyProfilesOverviewEdgeCases(unittest.TestCase):
     """Edge-case tests using small synthetic data."""
 
@@ -179,7 +179,7 @@ class TestPlotDailyProfiles(unittest.TestCase):
             self.assertIn(day, html)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotHeatmapMedianWeeks(unittest.TestCase):
     """Tests for plot_heatmap_median_weeks."""
 
@@ -277,7 +277,7 @@ def _load_pes_data():
     return pd.read_csv(csv_path)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotEnergySignature(unittest.TestCase):
     """Tests for plot_energy_signature."""
 
@@ -322,7 +322,7 @@ class TestPlotEnergySignature(unittest.TestCase):
 
 
 @patch('pyedautils.energy_signature.get_season', side_effect=_fast_get_season)
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotEnergySignaturePES(unittest.TestCase):
     """Tests for plot_energy_signature_pes."""
 
@@ -355,7 +355,7 @@ class TestPlotEnergySignaturePES(unittest.TestCase):
         self.assertGreater(len(fig.data), 0)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotComfort(unittest.TestCase):
     """Tests for comfort plot functions."""
 
@@ -423,7 +423,7 @@ class TestPlotSumFrequency(unittest.TestCase):
         self.assertIn("Custom SF", fig.layout.title.text)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotDensitySeasons(unittest.TestCase):
     """Tests for plot_density_seasons."""
 
@@ -676,7 +676,7 @@ class TestPlotAutocorrelation(unittest.TestCase):
         self.assertIn("Custom ACF", fig.layout.title.text)
 
 
-@patch('pyedautils.season.get_season', side_effect=_fast_get_season)
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
 class TestPlotEmptySeasonBranches(unittest.TestCase):
     """Cover the `if subset.empty: continue` branches in season loops."""
 

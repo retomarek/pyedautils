@@ -7,7 +7,7 @@ See {doc}`../examples/season` for usage examples.
 ## API Reference
 
 ```{eval-rst}
-.. automodule:: pyedautils.season
+.. automodule:: pyedautils.data_prep.season
    :members:
    :undoc-members:
    :show-inheritance:

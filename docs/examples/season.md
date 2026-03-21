@@ -5,7 +5,7 @@ See {doc}`../api/season` for the full API reference.
 ## Basic usage
 
 ```python
-from pyedautils.season import get_season
+from pyedautils.data_prep.season import get_season
 from datetime import datetime
 
 print(get_season(datetime(2024, 7, 15)))   # "Summer"

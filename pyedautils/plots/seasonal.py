@@ -331,7 +331,7 @@ def plot_density_seasons(
         go.Figure: Plotly figure with one density trace per season.
     """
     import numpy as np
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 

@@ -37,7 +37,7 @@ def prepare_hourly_seasonal_data(
         Aggregated DataFrame with columns: season, weekday, dayhour,
         valueMedian, valueUpper, valueLower.
     """
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     df = data.copy()
     df.columns = ["timestamp", "value"]

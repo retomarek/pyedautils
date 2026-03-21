@@ -14,7 +14,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from pyedautils.season import get_season
+from pyedautils.data_prep.season import get_season
 
 
 class PESResult(NamedTuple):

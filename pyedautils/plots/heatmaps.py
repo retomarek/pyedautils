@@ -34,7 +34,7 @@ def plot_heatmap_median_weeks(
     Returns:
         go.Figure: Plotly figure with one heatmap subplot per season.
     """
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     if seasons is None:
         seasons = DEFAULT_SEASONS

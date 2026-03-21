@@ -5,7 +5,7 @@ import pandas as pd
 from pandas.testing import assert_series_equal
 from datetime import datetime
 
-from pyedautils.season import get_season
+from pyedautils.data_prep.season import get_season
 
 class TestSeasonFunction(unittest.TestCase):
     def test_season_northern_hemisphere_astronomical(self):

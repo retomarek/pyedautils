@@ -29,7 +29,7 @@ def plot_comfort_sia180(
     Returns:
         go.Figure
     """
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 
@@ -146,7 +146,7 @@ def plot_comfort_temp_humidity(
     Returns:
         go.Figure
     """
-    from pyedautils.season import get_season
+    from pyedautils.data_prep.season import get_season
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 
