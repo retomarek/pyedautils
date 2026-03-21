@@ -203,19 +203,25 @@ def plot_missing_values_heatmap(
     Returns:
         go.Figure: Plotly heatmap figure.
     """
-    import plotly.express as px
-
     if color_scale is None:
-        color_scale = ["white", "red"]
+        color_scale = [[0, "white"], [1, "red"]]
 
     na_pct = (df.isna().mean() * 100).round(1)
     subtitle = f"{na_pct.mean():.1f}% missing on average"
 
-    fig = px.imshow(
-        df.isna().astype(int).T,
-        aspect="auto",
-        color_continuous_scale=color_scale,
-        labels=dict(x="Time", y="Sensor"),
+    na_matrix = df.isna().astype(int)
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=na_matrix.T.values,
+            x=df.index,
+            y=list(df.columns),
+            colorscale=color_scale,
+            zmin=0,
+            zmax=1,
+            showscale=False,
+            hovertemplate="Time: %{x}<br>Sensor: %{y}<br>Missing: %{z}<extra></extra>",
+        )
     )
 
     fig.update_layout(
@@ -224,7 +230,8 @@ def plot_missing_values_heatmap(
         title_x=0.5,
         template="plotly_white",
         height=height,
-        coloraxis_showscale=False,
+        xaxis_title="Time",
+        yaxis_title="Sensor",
     )
 
     return fig
