@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pyedautils._mollier import (
     C_PL,
+    DEFAULT_CONVENTION,
     R_0,
     create_comfort,
     density,
@@ -172,6 +173,76 @@ class TestScalarInternals(unittest.TestCase):
         self.assertGreater(phi, 0)
 
 
+class TestConvention(unittest.TestCase):
+    """Tests for the configurable Mollier convention ('classical' vs 'glueck')."""
+
+    def test_default_is_classical(self):
+        self.assertEqual(DEFAULT_CONVENTION, 'classical')
+
+    def test_invalid_convention_raises(self):
+        with self.assertRaises(ValueError):
+            temperature(0.005, 20, convention='nonsense')
+
+    def test_classical_isotherm_slopes_up_with_x(self):
+        # At T=25°C, x=0: y=25 (exact). At T=25°C, x=20 g/kg: y > 25.
+        _, y0 = get_x_y_tx(25, 0.0, 101325, convention='classical')
+        _, y1 = get_x_y_tx(25, 0.020, 101325, convention='classical')
+        self.assertAlmostEqual(y0, 25.0, places=4)
+        self.assertGreater(y1, y0)
+
+    def test_glueck_isotherm_slopes_down_with_x(self):
+        # Same input, Glück convention: y at x>0 should be < y at x=0.
+        _, y0 = get_x_y_tx(25, 0.0, 101325, convention='glueck')
+        _, y1 = get_x_y_tx(25, 0.020, 101325, convention='glueck')
+        self.assertAlmostEqual(y0, 25.0, places=4)
+        self.assertLess(y1, y0)
+
+    def test_conventions_differ_at_nonzero_x(self):
+        _, y_c = get_x_y_tx(25, 0.010, 101325, convention='classical')
+        _, y_g = get_x_y_tx(25, 0.010, 101325, convention='glueck')
+        self.assertNotAlmostEqual(y_c, y_g, places=2)
+
+    def test_conventions_agree_at_x_zero(self):
+        # By construction, at x=0 both conventions give y = T.
+        _, y_c = get_x_y_tx(25, 0.0, 101325, convention='classical')
+        _, y_g = get_x_y_tx(25, 0.0, 101325, convention='glueck')
+        self.assertAlmostEqual(y_c, y_g, places=8)
+
+    def test_roundtrip_both_conventions(self):
+        p = 101325.0
+        for conv in ('classical', 'glueck'):
+            for t, phi in [(20, 0.5), (5, 0.3), (35, 0.8)]:
+                xv, yv = get_x_y(t, phi, p, convention=conv)
+                t_back = temperature(xv, yv, convention=conv)
+                phi_back = rel_humidity(xv, yv, p, convention=conv)
+                self.assertAlmostEqual(t, t_back, places=2,
+                                       msg=f"{conv}: t round-trip")
+                self.assertAlmostEqual(phi, phi_back, places=3,
+                                       msg=f"{conv}: phi round-trip")
+
+    def test_roundtrip_y_rhox_both_conventions(self):
+        p = 101325.0
+        for conv in ('classical', 'glueck'):
+            rho = density(0.005, 20, p, convention=conv)
+            yv = y_rhox(rho, 0.005, p, convention=conv)
+            self.assertAlmostEqual(yv, 20.0, places=1, msg=conv)
+
+    def test_roundtrip_x_phiy_both_conventions(self):
+        p = 101325.0
+        for conv in ('classical', 'glueck'):
+            xv, yv = get_x_y(20, 0.5, p, convention=conv)
+            x_back = x_phiy(0.5, yv, p, convention=conv)
+            self.assertAlmostEqual(xv, x_back, places=5, msg=conv)
+
+    def test_comfort_zone_both_conventions(self):
+        for conv in ('classical', 'glueck'):
+            polygon = create_comfort(
+                (20, 26), (0.30, 0.65), (0, 0.0115), 101325.0,
+                convention=conv,
+            )
+            self.assertGreater(len(polygon), 3, msg=conv)
+
+
 class TestPlotMollierHx(unittest.TestCase):
     """Tests for plot_mollier_hx (D3 HTML output)."""
 
@@ -235,6 +306,18 @@ class TestPlotMollierHx(unittest.TestCase):
     def test_custom_height(self):
         html = plot_mollier_hx(height=500)
         self.assertIn("500", html)
+
+    def test_convention_classical_default(self):
+        html = plot_mollier_hx()
+        self.assertIn('"classical"', html)
+
+    def test_convention_glueck(self):
+        html = plot_mollier_hx(convention='glueck')
+        self.assertIn('"glueck"', html)
+
+    def test_convention_invalid_raises(self):
+        with self.assertRaises(ValueError):
+            plot_mollier_hx(convention='nonsense')
 
 
 if __name__ == '__main__':

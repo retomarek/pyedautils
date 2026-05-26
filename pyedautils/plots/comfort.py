@@ -250,6 +250,7 @@ def plot_mollier_hx(
     domain_y: Tuple[float, float] = (-20.0, 50.0),
     comfort_zone: Optional[Dict[str, Tuple[float, float]]] = None,
     height: int = 700,
+    convention: str = 'classical',
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -268,6 +269,10 @@ def plot_mollier_hx(
             each a (min, max) tuple. Defaults: T=[20, 26], phi=[0.30, 0.65],
             x=[0, 0.0115]. Pass ``False`` to disable the comfort zone.
         height: Diagram height in pixels. Default 700.
+        convention: Mollier coordinate convention. ``'classical'`` (default)
+            normalises enthalpy per kg of dry air (Recknagel/Sprenger style,
+            isotherms tilt slightly up with x). ``'glueck'`` normalises per
+            kg of moist air (per the Glück book, isotherms tilt slightly down).
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
@@ -277,11 +282,13 @@ def plot_mollier_hx(
     import json
 
     from pyedautils._mollier import (
+        _check_convention,
         get_x_y,
         rel_humidity as m_rel_humidity,
         temperature as m_temperature,
     )
 
+    convention = _check_convention(convention)
     js = _load_d3_js()
 
     # Prepare data JSON
@@ -294,7 +301,7 @@ def plot_mollier_hx(
         if not df.empty:
             t_arr = df["temperature"].values
             phi_arr = df["humidity"].values / 100.0
-            x_arr, y_arr = get_x_y(t_arr, phi_arr, pressure)
+            x_arr, y_arr = get_x_y(t_arr, phi_arr, pressure, convention=convention)
             df["season"] = df["timestamp"].apply(_get_season_fast)
             records = []
             for i in range(len(df)):
@@ -304,8 +311,9 @@ def plot_mollier_hx(
                     "x": xv, "y": yv,
                     "season": _SEASON_LABELS_DE.get(df.iloc[i]["season"], "?"),
                     "ts": ts.strftime("%Y-%m-%d %H:%M"),
-                    "temp": round(float(m_temperature(xv, yv)), 2),
-                    "phi": round(float(m_rel_humidity(xv, yv, pressure) * 100), 2),
+                    "temp": round(float(m_temperature(xv, yv, convention=convention)), 2),
+                    "phi": round(float(m_rel_humidity(
+                        xv, yv, pressure, convention=convention) * 100), 2),
                     "xg": round(xv * 1000, 2),
                 })
             data_json = json.dumps(records)
@@ -341,6 +349,8 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 {js["mollier_functions"]}
 {js["coordinate_generator"]}
 {js["draw_comfort"]}
+  let convention = "{convention}";
+  let mollier = createMollier(convention);
   let p = {pressure};
   let domainX = {domain_x_js};
   let domainY = {domain_y_js};
@@ -368,13 +378,13 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
     .attr("clip-path", "url(#{clip_id})");
 
-  drawHXCoordinates(bg, Width, Height, margin, domainX, domainY, p);
+  drawHXCoordinates(bg, Width, Height, margin, domainX, domainY, p, mollier);
 
   let x = d3.scaleLinear().range([0, width]).domain(domainX);
   let y = d3.scaleLinear().range([height, 0]).domain(domainY);
 
   let line = d3.line().x(d => x(d.x)).y(d => y(d.y));
-  let pathos = createComfort(rangeT, rangePhi, rangeX, p);
+  let pathos = createComfort(rangeT, rangePhi, rangeX, p, mollier);
   if (pathos && pathos.length > 0) {{
     plot.append("path").datum(pathos).attr("d", line)
       .attr("fill", "yellowgreen").attr("fill-opacity", 0.4)

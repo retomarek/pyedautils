@@ -11,7 +11,21 @@
 // [domainY] = °C
 // [p] = Pa = N/m^2
 
-function drawHXCoordinates(container,Width,Height,margin,domainX,domainY,p) {
+function drawHXCoordinates(container,Width,Height,margin,domainX,domainY,p,mollier) {
+
+    // Resolve the Mollier suite for the chosen convention (default 'classical').
+    if (!mollier) mollier = createMollier();
+    const temperature = mollier.temperature;
+    const density = mollier.density;
+    const rel_humidity = mollier.rel_humidity;
+    const enthalpy = mollier.enthalpy;
+    const get_x_y = mollier.get_x_y;
+    const get_x_y_tx = mollier.get_x_y_tx;
+    const y_phix = mollier.y_phix;
+    const x_phiy = mollier.x_phiy;
+    const y_rhox = mollier.y_rhox;
+    const x_hy = mollier.x_hy;
+    const y_hx = mollier.y_hx;
 
     // Color definition
     let colors = { t: "#63c1ff", rho: "#888888", phi: "#555555", h: "#CCCCCC",};
