@@ -344,6 +344,33 @@ class TestPlotMollierHx(unittest.TestCase):
         html = plot_mollier_hx()
         self.assertIn("currentRecord = null", html)
 
+    def test_highlight_color_default_black(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=3, freq="h"),
+            "humidity": [50, 60, 55],
+            "temperature": [22, 24, 23],
+        })
+        html = plot_mollier_hx(data=df)
+        self.assertIn('highlightColor = "black"', html)
+
+    def test_highlight_color_custom(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=3, freq="h"),
+            "humidity": [50, 60, 55],
+            "temperature": [22, 24, 23],
+        })
+        html = plot_mollier_hx(data=df, highlight_color='red')
+        self.assertIn('highlightColor = "red"', html)
+
+    def test_highlight_color_none_uses_season(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=3, freq="h"),
+            "humidity": [50, 60, 55],
+            "temperature": [22, 24, 23],
+        })
+        html = plot_mollier_hx(data=df, highlight_color=None)
+        self.assertIn('highlightColor = null', html)
+
     def test_highlight_latest_picks_max_timestamp(self):
         # Out-of-order rows: the row with the newest timestamp should be
         # selected, not df.iloc[-1].

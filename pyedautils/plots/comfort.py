@@ -252,6 +252,7 @@ def plot_mollier_hx(
     height: int = 700,
     convention: str = 'classical',
     highlight_latest: bool = True,
+    highlight_color: Optional[str] = 'black',
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -275,8 +276,11 @@ def plot_mollier_hx(
             isotherms tilt slightly up with x). ``'glueck'`` normalises per
             kg of moist air (per the Glück book, isotherms tilt slightly down).
         highlight_latest: When ``True`` (default), the row with the most recent
-            timestamp is overlaid as a black circle on top of the seasonal
-            scatter points. Set to ``False`` to disable.
+            timestamp is overlaid as a circle on top of the seasonal scatter
+            points. Set to ``False`` to disable.
+        highlight_color: CSS colour used for the latest-row overlay. Default
+            ``'black'``. Pass ``None`` to use that row's season colour (so the
+            highlight is visible only by size/order, not by colour).
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
@@ -337,6 +341,7 @@ def plot_mollier_hx(
         comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
+    highlight_color_js = json.dumps(highlight_color)
 
     import uuid
     uid = uuid.uuid4().hex[:8]
@@ -369,6 +374,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let rangeX = {comfort_x};
   let dataRecords = {data_json};
   let currentRecord = {current_json};
+  let highlightColor = {highlight_color_js};
   let colorMap = {season_colors};
 
   let Height = {height};
@@ -432,17 +438,20 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 
     // Latest record drawn on top of all seasonal points.
     if (currentRecord) {{
+      let latestFill = highlightColor !== null
+        ? highlightColor
+        : (colorMap[currentRecord.season] || "#999");
       plot.append("g").attr("id", "current-point")
         .append("circle")
           .datum(currentRecord)
           .attr("cx", x(currentRecord.x)).attr("cy", y(currentRecord.y))
-          .attr("r", 6).attr("fill", "black")
+          .attr("r", 6).attr("fill", latestFill)
           .attr("stroke", "white").attr("stroke-width", 1.5)
           .style("cursor", "pointer")
           .on("mouseover", function(d) {{
             d3.select(this).attr("r", 10);
             tooltip.style("opacity", 1)
-              .style("background-color", "black")
+              .style("background-color", latestFill)
               .style("color", "white")
               .html("Latest: " + d.ts
                 + "<br>x: " + d.xg + " g/kg<br>T: " + d.temp
