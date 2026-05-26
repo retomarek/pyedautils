@@ -29,11 +29,13 @@ import numpy as np
 # Physical constants
 C_PL = 1.01       # kJ/(kg·K) — specific heat capacity of dry air
 C_PW = 1.86       # kJ/(kg·K) — specific heat capacity of water vapour
+C_W_FL = 4.19     # kJ/(kg·K) — specific heat capacity of liquid water
 R_0 = 2501.0      # kJ/kg     — latent heat of vaporisation at 0 °C
 K = 0.6222         # kg/kg     — molar-mass ratio water / dry air (18.02/28.96)
 R = 8.3144         # kJ/(kmol·K) — universal gas constant
 R_W = R / 18.02    # kJ/(kg·K)  — specific gas constant of water vapour
 K_0C = 273.15      # K          — zero Celsius in Kelvin
+P_STD = 101325.0   # Pa         — standard atmospheric pressure at sea level
 
 # Coefficients for the saturation-pressure polynomial (piecewise, threshold 0.01 °C)
 _C = [
@@ -132,6 +134,101 @@ def temperature_p_sat(p_s) -> float:
         t -= residual / deriv
 
     raise RuntimeError("temperature_p_sat did not converge")  # pragma: no cover
+
+
+# ---------------------------------------------------------------------------
+# Convention-independent derived properties
+# ---------------------------------------------------------------------------
+# All functions below describe physical quantities of the moist-air state.
+# They do not depend on how the (x, y) plane is parametrised — i.e. no
+# `convention` argument — and round-trip cleanly with the diagram coordinates.
+
+def pressure_from_altitude(altitude_m) -> float:
+    """Atmospheric pressure [Pa] at given altitude [m above sea level].
+
+    International Standard Atmosphere (ISA) barometric formula, valid in the
+    troposphere (0–11 km). Reference state: p₀ = 101325 Pa, T₀ = 288.15 K,
+    L = 0.0065 K/m.
+    """
+    return P_STD * (1 - 2.25577e-5 * altitude_m) ** 5.25588
+
+
+def vapor_pressure(x, p) -> float:
+    """Water-vapour partial pressure [Pa] from absolute humidity and pressure.
+
+    Args:
+        x: Absolute humidity [kg/kg dry air].
+        p: Total pressure [Pa].
+    """
+    return x * p / (K + x)
+
+
+def dew_point(x, p) -> float:
+    """Dew-point temperature [°C] from absolute humidity and pressure.
+
+    The dew point is the temperature at which the current water-vapour
+    partial pressure equals the saturation pressure (φ = 1). Inverts
+    ``temperature_p_sat`` for the vapour-pressure of the given (x, p).
+    """
+    return temperature_p_sat(vapor_pressure(x, p))
+
+
+def specific_volume(t, x, p) -> float:
+    """Specific volume [m³/kg dry air] from temperature, abs. humidity, pressure.
+
+    Args:
+        t: Dry-bulb temperature [°C].
+        x: Absolute humidity [kg/kg dry air].
+        p: Total pressure [Pa].
+    """
+    # Density of moist air [kg/m³], same formula as ``density()`` but expressed
+    # in (T, x) directly so we don't need to round-trip through the diagram.
+    t_k = K_0C + t
+    rho_moist = p / (R_W * t_k) * (1 + x) / (K + x) / 1000.0
+    return (1 + x) / rho_moist
+
+
+def wet_bulb(t, x, p) -> float:
+    """Wet-bulb temperature [°C] from dry-bulb T, abs. humidity x, pressure p.
+
+    Solves the adiabatic-saturation energy balance:
+
+        h(T_db, x) = h(T_wb, x_sat(T_wb)) − (x_sat(T_wb) − x)·c_W_fl·T_wb
+
+    iteratively (Newton with numerical derivative). Returns T_wb such that
+    air at T_db, x is in equilibrium with water adiabatically evaporated
+    to saturation at T_wb.
+
+    Notes:
+        - At saturation (x = x_sat(T_db)), T_wb = T_db.
+        - Convention-independent (T_wb is a physical thermodynamic quantity).
+    """
+    def x_sat_at(t_w):
+        ps = _p_sat_scalar(t_w)
+        # Guard against p_sat ≥ p which would yield negative or infinite x_sat.
+        if ps >= p:
+            raise ValueError(f"Saturation pressure exceeds total pressure at {t_w} °C")
+        return K * ps / (p - ps)
+
+    def residual(t_w):
+        h_db = C_PL * t + x * (R_0 + C_PW * t)
+        xs = x_sat_at(t_w)
+        h_sat = C_PL * t_w + xs * (R_0 + C_PW * t_w)
+        h_liq_correction = (xs - x) * C_W_FL * t_w
+        return h_db - h_sat + h_liq_correction
+
+    t_w = t - 1.0  # T_wb ≤ T_db for unsaturated air; start just below
+    eps = 1e-4
+    for _ in range(200):
+        r = residual(t_w)
+        if abs(r) <= 1e-3:
+            return t_w
+        deriv = (residual(t_w + eps) - residual(t_w - eps)) / (2 * eps)
+        if deriv == 0:
+            break  # pragma: no cover
+        t_w -= r / deriv
+
+    raise RuntimeError("wet_bulb did not converge")  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------

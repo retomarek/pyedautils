@@ -5,16 +5,22 @@ import pandas as pd
 from pyedautils._mollier import (
     C_PL,
     DEFAULT_CONVENTION,
+    P_STD,
     R_0,
     create_comfort,
     density,
+    dew_point,
     enthalpy,
     get_x_y,
     get_x_y_tx,
     p_sat,
+    pressure_from_altitude,
     rel_humidity,
+    specific_volume,
     temperature,
     temperature_p_sat,
+    vapor_pressure,
+    wet_bulb,
     x_hy,
     x_phiy,
     y_hx,
@@ -241,6 +247,94 @@ class TestConvention(unittest.TestCase):
                 convention=conv,
             )
             self.assertGreater(len(polygon), 3, msg=conv)
+
+
+class TestPropertyHelpers(unittest.TestCase):
+    """Tests for the Phase-1 convention-independent derived properties:
+    pressure_from_altitude, vapor_pressure, dew_point, specific_volume, wet_bulb.
+    """
+
+    def test_pressure_at_sea_level(self):
+        self.assertAlmostEqual(pressure_from_altitude(0), P_STD, places=1)
+
+    def test_pressure_at_450m(self):
+        # Matches the default in mollier-hx-card.
+        self.assertAlmostEqual(pressure_from_altitude(450), 96035.0, delta=5.0)
+
+    def test_pressure_at_1500m(self):
+        # Common Swiss-Alps reference altitude.
+        self.assertAlmostEqual(pressure_from_altitude(1500), 84559.0, delta=20.0)
+
+    def test_pressure_monotonic(self):
+        # Higher altitude → lower pressure.
+        prev = pressure_from_altitude(0)
+        for h in [100, 500, 1000, 2000, 5000]:
+            p = pressure_from_altitude(h)
+            self.assertLess(p, prev, f"non-monotonic at {h} m")
+            prev = p
+
+    def test_vapor_pressure_dry_air(self):
+        self.assertEqual(vapor_pressure(0, P_STD), 0.0)
+
+    def test_vapor_pressure_known(self):
+        # x = 0.01 kg/kg, p = 101325 Pa → p_v ≈ 1602 Pa
+        self.assertAlmostEqual(vapor_pressure(0.01, P_STD), 1602.4, delta=1.0)
+
+    def test_dew_point_at_saturation(self):
+        # Saturated air at 20 °C has T_dp = 20 °C.
+        xv, _ = get_x_y(20.0, 1.0, P_STD)
+        self.assertAlmostEqual(dew_point(xv, P_STD), 20.0, places=1)
+
+    def test_dew_point_below_db(self):
+        # For unsaturated air, T_dp < T_db.
+        xv, _ = get_x_y(25.0, 0.5, P_STD)
+        self.assertLess(dew_point(xv, P_STD), 25.0)
+
+    def test_dew_point_known(self):
+        # 20 °C, 50 % RH at sea level → T_dp ≈ 9.3 °C
+        xv, _ = get_x_y(20.0, 0.5, P_STD)
+        self.assertAlmostEqual(dew_point(xv, P_STD), 9.3, delta=0.3)
+
+    def test_specific_volume_dry_air_20C(self):
+        # Dry air at 20 °C, sea level → v ≈ 0.831 m³/kg
+        self.assertAlmostEqual(specific_volume(20.0, 0.0, P_STD), 0.831, delta=0.005)
+
+    def test_specific_volume_increases_with_temperature(self):
+        v1 = specific_volume(0.0, 0.005, P_STD)
+        v2 = specific_volume(30.0, 0.005, P_STD)
+        self.assertGreater(v2, v1)
+
+    def test_specific_volume_matches_inverse_density(self):
+        # v = (1 + x) / rho_moist — cross-check against existing density() at
+        # the same state. Pick (x, y) that round-trips to a known (t, x).
+        t, phi = 22.0, 0.45
+        xv, yv = get_x_y(t, phi, P_STD)
+        rho = density(xv, yv, P_STD)
+        v_expected = (1 + xv) / rho
+        self.assertAlmostEqual(specific_volume(t, xv, P_STD), v_expected, places=5)
+
+    def test_wet_bulb_at_saturation(self):
+        # φ = 1.0 → T_wb = T_db.
+        xv, _ = get_x_y(15.0, 1.0, P_STD)
+        self.assertAlmostEqual(wet_bulb(15.0, xv, P_STD), 15.0, places=1)
+
+    def test_wet_bulb_25C_50RH(self):
+        # ASHRAE-table reference: 25 °C / 50 % RH / sea level → T_wb ≈ 17.9 °C
+        xv, _ = get_x_y(25.0, 0.5, P_STD)
+        self.assertAlmostEqual(wet_bulb(25.0, xv, P_STD), 17.9, delta=0.3)
+
+    def test_wet_bulb_dry_air_large_depression(self):
+        # Very dry air → big T_wb depression.
+        xv, _ = get_x_y(30.0, 0.1, P_STD)
+        twb = wet_bulb(30.0, xv, P_STD)
+        self.assertLess(twb, 20.0)  # at least 10 K depression
+        self.assertGreater(twb, 5.0)  # but not absurd
+
+    def test_wet_bulb_below_db(self):
+        # For any unsaturated state, T_wb < T_db.
+        for t, phi in [(15, 0.3), (20, 0.7), (35, 0.4)]:
+            xv, _ = get_x_y(t, phi, P_STD)
+            self.assertLess(wet_bulb(t, xv, P_STD), t)
 
 
 class TestPlotMollierHx(unittest.TestCase):
