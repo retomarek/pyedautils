@@ -251,6 +251,7 @@ def plot_mollier_hx(
     comfort_zone: Optional[Dict[str, Tuple[float, float]]] = None,
     height: int = 700,
     convention: str = 'classical',
+    highlight_latest: bool = True,
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -273,6 +274,9 @@ def plot_mollier_hx(
             normalises enthalpy per kg of dry air (Recknagel/Sprenger style,
             isotherms tilt slightly up with x). ``'glueck'`` normalises per
             kg of moist air (per the Glück book, isotherms tilt slightly down).
+        highlight_latest: When ``True`` (default), the row with the most recent
+            timestamp is overlaid as a black circle on top of the seasonal
+            scatter points. Set to ``False`` to disable.
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
@@ -293,6 +297,7 @@ def plot_mollier_hx(
 
     # Prepare data JSON
     data_json = "null"
+    current_json = "null"
     if data is not None and not data.empty:
         df = data.copy()
         df.columns = ["timestamp", "humidity", "temperature"]
@@ -317,6 +322,11 @@ def plot_mollier_hx(
                     "xg": round(xv * 1000, 2),
                 })
             data_json = json.dumps(records)
+            if highlight_latest:
+                # Find the record with the most recent timestamp (don't assume
+                # the input DataFrame is sorted).
+                idx_latest = df["timestamp"].values.argmax()
+                current_json = json.dumps(records[idx_latest])
 
     if comfort_zone is False:
         comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
@@ -358,6 +368,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let rangePhi = {comfort_phi};
   let rangeX = {comfort_x};
   let dataRecords = {data_json};
+  let currentRecord = {current_json};
   let colorMap = {season_colors};
 
   let Height = {height};
@@ -418,6 +429,32 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
         d3.select(this).attr("r", 5).attr("opacity", 0.4);
         tooltip.style("opacity", 0);
       }});
+
+    // Latest record drawn on top of all seasonal points.
+    if (currentRecord) {{
+      plot.append("g").attr("id", "current-point")
+        .append("circle")
+          .datum(currentRecord)
+          .attr("cx", x(currentRecord.x)).attr("cy", y(currentRecord.y))
+          .attr("r", 6).attr("fill", "black")
+          .attr("stroke", "white").attr("stroke-width", 1.5)
+          .style("cursor", "pointer")
+          .on("mouseover", function(d) {{
+            d3.select(this).attr("r", 10);
+            tooltip.style("opacity", 1)
+              .style("background-color", "black")
+              .style("color", "white")
+              .html("Latest: " + d.ts
+                + "<br>x: " + d.xg + " g/kg<br>T: " + d.temp
+                + " °C<br>φ: " + d.phi + " %")
+              .style("left", (d3.event.pageX + 15) + "px")
+              .style("top", (d3.event.pageY - 40) + "px");
+          }})
+          .on("mouseout", function() {{
+            d3.select(this).attr("r", 6);
+            tooltip.style("opacity", 0);
+          }});
+    }}
 
     let legendItems = [
       {{label: "Komfortzone", color: "#9ACD32", type: "rect"}},

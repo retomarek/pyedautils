@@ -319,6 +319,50 @@ class TestPlotMollierHx(unittest.TestCase):
         with self.assertRaises(ValueError):
             plot_mollier_hx(convention='nonsense')
 
+    def test_highlight_latest_default_with_data(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=5, freq="h"),
+            "humidity": [50, 55, 60, 45, 50],
+            "temperature": [22, 23, 24, 22, 25],
+        })
+        html = plot_mollier_hx(data=df)
+        self.assertIn("current-point", html)
+        # currentRecord JSON should not be null when data is given
+        self.assertNotIn("currentRecord = null", html)
+
+    def test_highlight_latest_disabled(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=3, freq="h"),
+            "humidity": [50, 60, 55],
+            "temperature": [22, 24, 23],
+        })
+        html = plot_mollier_hx(data=df, highlight_latest=False)
+        self.assertIn("currentRecord = null", html)
+
+    def test_highlight_latest_no_data(self):
+        # Without data, no current point regardless of the flag.
+        html = plot_mollier_hx()
+        self.assertIn("currentRecord = null", html)
+
+    def test_highlight_latest_picks_max_timestamp(self):
+        # Out-of-order rows: the row with the newest timestamp should be
+        # selected, not df.iloc[-1].
+        df = pd.DataFrame({
+            "timestamp": [
+                pd.Timestamp("2023-06-05 10:00"),  # newest
+                pd.Timestamp("2023-06-01 08:00"),
+                pd.Timestamp("2023-06-03 12:00"),
+            ],
+            "humidity": [42.0, 99.0, 99.0],
+            "temperature": [11.0, 99.0, 99.0],
+        })
+        html = plot_mollier_hx(data=df)
+        # The newest row had humidity=42, temperature=11 — its phi (rounded
+        # percent) must appear in the currentRecord JSON.
+        # The phi% value at T=11°C, RH=42% is roughly 42, so look for the
+        # serialised "temp": 11.0 marker which is unique to that row.
+        self.assertRegex(html, r'currentRecord = \{[^}]*"temp": 11')
+
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
