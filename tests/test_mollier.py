@@ -5,6 +5,7 @@ import pandas as pd
 from pyedautils._mollier import (
     C_PL,
     DEFAULT_CONVENTION,
+    MoistAirState,
     P_STD,
     R_0,
     create_comfort,
@@ -17,6 +18,7 @@ from pyedautils._mollier import (
     pressure_from_altitude,
     rel_humidity,
     specific_volume,
+    state,
     temperature,
     temperature_p_sat,
     vapor_pressure,
@@ -335,6 +337,181 @@ class TestPropertyHelpers(unittest.TestCase):
         for t, phi in [(15, 0.3), (20, 0.7), (35, 0.4)]:
             xv, _ = get_x_y(t, phi, P_STD)
             self.assertLess(wet_bulb(t, xv, P_STD), t)
+
+
+class TestStateFactory(unittest.TestCase):
+    """Phase-2 tests: the MoistAirState dataclass and the universal
+    ``state(...)`` factory.
+    """
+
+    # Canonical reference: 25 °C / 50 % RH at sea level. See
+    # TestPropertyHelpers.test_wet_bulb_25C_50RH for the T_wb=17.9 °C basis.
+    REF = dict(t=25.0, phi=0.5, p=P_STD)
+    REF_X = 0.009876
+    REF_H = 50.41
+    REF_T_WB = 17.9
+    REF_T_DP = 13.86
+
+    # ---------------------------------------------------------------------
+    # Single-property pairs that involve t — direct (no iteration)
+    # ---------------------------------------------------------------------
+
+    def test_from_t_phi(self):
+        s = state(t=25.0, phi=0.5, p=P_STD)
+        self.assertAlmostEqual(s.x, self.REF_X, places=5)
+        self.assertAlmostEqual(s.h, self.REF_H, places=1)
+        self.assertAlmostEqual(s.t_wb, self.REF_T_WB, delta=0.3)
+        self.assertAlmostEqual(s.t_dp, self.REF_T_DP, delta=0.3)
+        self.assertEqual(s.p, P_STD)
+        self.assertEqual(s.convention, 'classical')
+        self.assertIsNone(s.m_dot_dry)
+        self.assertIsNone(s.volume_flow)
+
+    def test_from_t_x(self):
+        s = state(t=25.0, x=self.REF_X, p=P_STD)
+        self.assertAlmostEqual(s.phi, 0.5, delta=1e-4)
+        self.assertAlmostEqual(s.h, self.REF_H, places=1)
+
+    def test_from_t_h(self):
+        s = state(t=25.0, h=self.REF_H, p=P_STD)
+        self.assertAlmostEqual(s.x, self.REF_X, places=4)
+        self.assertAlmostEqual(s.phi, 0.5, delta=1e-3)
+
+    def test_from_t_t_dp(self):
+        s = state(t=25.0, t_dp=self.REF_T_DP, p=P_STD)
+        self.assertAlmostEqual(s.phi, 0.5, delta=0.02)
+        self.assertAlmostEqual(s.x, self.REF_X, delta=2e-4)
+
+    def test_from_t_t_wb(self):
+        s = state(t=25.0, t_wb=self.REF_T_WB, p=P_STD)
+        self.assertAlmostEqual(s.phi, 0.5, delta=0.02)
+        self.assertAlmostEqual(s.x, self.REF_X, delta=2e-4)
+
+    # ---------------------------------------------------------------------
+    # Pairs without t — solve for t from the second property
+    # ---------------------------------------------------------------------
+
+    def test_from_x_phi(self):
+        s = state(x=self.REF_X, phi=0.5, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, places=1)
+
+    def test_from_x_h(self):
+        s = state(x=self.REF_X, h=self.REF_H, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, places=1)
+
+    def test_from_x_t_wb(self):
+        s = state(x=self.REF_X, t_wb=self.REF_T_WB, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.3)
+
+    def test_from_t_dp_phi(self):
+        s = state(t_dp=self.REF_T_DP, phi=0.5, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.5)
+
+    def test_from_t_dp_h(self):
+        s = state(t_dp=self.REF_T_DP, h=self.REF_H, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.3)
+
+    def test_from_t_dp_t_wb(self):
+        s = state(t_dp=self.REF_T_DP, t_wb=self.REF_T_WB, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.5)
+
+    # ---------------------------------------------------------------------
+    # Fully iterative pairs (no t, no x)
+    # ---------------------------------------------------------------------
+
+    def test_from_phi_h(self):
+        s = state(phi=0.5, h=self.REF_H, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.3)
+        self.assertAlmostEqual(s.x, self.REF_X, delta=2e-4)
+
+    def test_from_phi_t_wb(self):
+        s = state(phi=0.5, t_wb=self.REF_T_WB, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.5)
+
+    def test_from_h_t_wb(self):
+        s = state(h=self.REF_H, t_wb=self.REF_T_WB, p=P_STD)
+        self.assertAlmostEqual(s.t, 25.0, delta=0.5)
+
+    # ---------------------------------------------------------------------
+    # Pressure and altitude
+    # ---------------------------------------------------------------------
+
+    def test_pressure_defaults_to_sea_level(self):
+        s = state(t=20.0, phi=0.5)
+        self.assertEqual(s.p, P_STD)
+
+    def test_altitude_overrides_default(self):
+        s = state(t=20.0, phi=0.5, altitude=450.0)
+        self.assertAlmostEqual(s.p, 96035.0, delta=5.0)
+
+    def test_p_and_altitude_mutually_exclusive(self):
+        with self.assertRaises(ValueError):
+            state(t=20.0, phi=0.5, p=P_STD, altitude=450.0)
+
+    # ---------------------------------------------------------------------
+    # Mass and volume flow
+    # ---------------------------------------------------------------------
+
+    def test_volume_flow_resolves_m_dot_dry(self):
+        s = state(t=25.0, phi=0.5, p=P_STD, volume_flow=1500.0)
+        expected_m_dot = 1500.0 / 3600.0 / s.v
+        self.assertAlmostEqual(s.m_dot_dry, expected_m_dot, places=5)
+        self.assertEqual(s.volume_flow, 1500.0)
+
+    def test_m_dot_dry_passes_through(self):
+        s = state(t=25.0, phi=0.5, p=P_STD, m_dot_dry=0.5)
+        self.assertEqual(s.m_dot_dry, 0.5)
+        self.assertIsNone(s.volume_flow)
+
+    def test_m_dot_and_volume_flow_mutually_exclusive(self):
+        with self.assertRaises(ValueError):
+            state(t=25.0, phi=0.5, p=P_STD, m_dot_dry=0.5, volume_flow=1500.0)
+
+    # ---------------------------------------------------------------------
+    # Convention
+    # ---------------------------------------------------------------------
+
+    def test_convention_changes_only_y(self):
+        # Physical properties identical, only the diagram y-coord differs.
+        sc = state(t=25.0, phi=0.5, p=P_STD, convention='classical')
+        sg = state(t=25.0, phi=0.5, p=P_STD, convention='glueck')
+        for attr in ('t', 'phi', 'x', 'h', 't_wb', 't_dp', 'p_v', 'rho', 'v'):
+            self.assertAlmostEqual(getattr(sc, attr), getattr(sg, attr), places=8,
+                                   msg=f"{attr} differs between conventions")
+        self.assertNotAlmostEqual(sc.y, sg.y, places=2)
+
+    def test_invalid_convention_raises(self):
+        with self.assertRaises(ValueError):
+            state(t=20.0, phi=0.5, convention='nonsense')
+
+    # ---------------------------------------------------------------------
+    # Error handling
+    # ---------------------------------------------------------------------
+
+    def test_requires_exactly_two_properties(self):
+        with self.assertRaises(ValueError):
+            state(t=25.0, p=P_STD)
+        with self.assertRaises(ValueError):
+            state(t=25.0, phi=0.5, x=0.01, p=P_STD)
+        with self.assertRaises(ValueError):
+            state(p=P_STD)
+
+    def test_x_t_dp_degenerate(self):
+        with self.assertRaises(ValueError):
+            state(x=0.01, t_dp=12.0, p=P_STD)
+
+    # ---------------------------------------------------------------------
+    # Immutability
+    # ---------------------------------------------------------------------
+
+    def test_state_is_frozen(self):
+        s = state(t=20.0, phi=0.5, p=P_STD)
+        with self.assertRaises(Exception):  # FrozenInstanceError
+            s.t = 30.0  # type: ignore[misc]
+
+    def test_state_is_dataclass(self):
+        s = state(t=20.0, phi=0.5, p=P_STD)
+        self.assertIsInstance(s, MoistAirState)
 
 
 class TestPlotMollierHx(unittest.TestCase):

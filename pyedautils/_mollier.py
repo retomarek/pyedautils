@@ -23,6 +23,8 @@ when you round-trip through a single convention.
 """
 
 import math
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 
@@ -504,3 +506,261 @@ def _arange_inclusive(start, stop, step):
             v += step
         vals.append(stop)
     return vals
+
+
+# ---------------------------------------------------------------------------
+# State point — MoistAirState dataclass + universal factory
+# ---------------------------------------------------------------------------
+# An immutable record of a single moist-air point, populated with every
+# derived property in one shot. The companion factory ``state(...)`` accepts
+# any two of {t, t_wb, t_dp, phi, x, h} plus pressure (or altitude) and
+# optional mass/volume flow.
+
+
+@dataclass(frozen=True)
+class MoistAirState:
+    """Immutable moist-air state with all derived psychrometric properties.
+
+    Construct via :func:`state`, never call this constructor directly.
+
+    Intensive properties (always populated):
+        t:      dry-bulb temperature [°C]
+        phi:    relative humidity [0..1]
+        x:      absolute humidity [kg/kg dry air]
+        h:      specific enthalpy [kJ/kg dry air]
+        t_wb:   wet-bulb temperature [°C]
+        t_dp:   dew-point temperature [°C]
+        p_v:    water-vapour partial pressure [Pa]
+        rho:    moist-air density [kg/m³]
+        v:      specific volume [m³/kg dry air]
+        y:      diagram y-coordinate (depends on ``convention``)
+
+    Extensive properties (optional, ``None`` when not specified):
+        m_dot_dry:   dry-air mass flow [kg/s]
+        volume_flow: volumetric flow rate [m³/h], evaluated at ``v``
+
+    Context:
+        p:          total pressure [Pa]
+        convention: Mollier coordinate convention ('classical' | 'glueck')
+    """
+    t: float
+    phi: float
+    x: float
+    h: float
+    t_wb: float
+    t_dp: float
+    p_v: float
+    rho: float
+    v: float
+    y: float
+    m_dot_dry: Optional[float] = None
+    volume_flow: Optional[float] = None
+    p: float = P_STD
+    convention: str = DEFAULT_CONVENTION
+
+
+def state(*, t=None, t_wb=None, t_dp=None, phi=None, x=None, h=None,
+          p=None, altitude=None, m_dot_dry=None, volume_flow=None,
+          convention=None) -> MoistAirState:
+    """Construct a :class:`MoistAirState` from any two psychrometric properties.
+
+    Exactly two of ``{t, t_wb, t_dp, phi, x, h}`` must be given. All other
+    properties are computed and returned.
+
+    Args:
+        t, t_wb, t_dp:   dry-bulb, wet-bulb, dew-point temperatures [°C]
+        phi:             relative humidity [0..1]
+        x:               absolute humidity [kg/kg dry air]
+        h:               enthalpy [kJ/kg dry air]
+        p:               total pressure [Pa] (defaults to sea-level standard
+                         when neither ``p`` nor ``altitude`` is given)
+        altitude:        altitude in metres a.s.l.; mutually exclusive with ``p``
+        m_dot_dry:       dry-air mass flow [kg/s] (mutually exclusive with
+                         ``volume_flow``)
+        volume_flow:     volumetric flow [m³/h] at the state's specific volume;
+                         converted internally to ``m_dot_dry``
+        convention:      'classical' (default) or 'glueck'
+
+    Raises:
+        ValueError: on invalid argument combinations (e.g. wrong number of
+            psychrometric properties, both ``p`` and ``altitude``, degenerate
+            pair like ``(x, t_dp)``).
+    """
+    convention = _check_convention(convention)
+
+    if altitude is not None and p is not None:
+        raise ValueError("Specify either p or altitude, not both")
+    if altitude is not None:
+        p = pressure_from_altitude(altitude)
+    if p is None:
+        p = P_STD
+
+    if m_dot_dry is not None and volume_flow is not None:
+        raise ValueError("Specify either m_dot_dry or volume_flow, not both")
+
+    provided = {k: v for k, v in {
+        't': t, 't_wb': t_wb, 't_dp': t_dp,
+        'phi': phi, 'x': x, 'h': h,
+    }.items() if v is not None}
+    if len(provided) != 2:
+        raise ValueError(
+            f"state() requires exactly two of {{t, t_wb, t_dp, phi, x, h}}; "
+            f"got {len(provided)}: {sorted(provided.keys())}"
+        )
+
+    t_val, x_val = _resolve_t_x(provided, p)
+
+    ps_t = _p_sat_scalar(t_val)
+    phi_val = x_val / (K + x_val) * p / ps_t
+    h_val = C_PL * t_val + x_val * (R_0 + C_PW * t_val)
+    t_wb_val = wet_bulb(t_val, x_val, p)
+    t_dp_val = dew_point(x_val, p)
+    p_v_val = vapor_pressure(x_val, p)
+    rho_val = p / (R_W * (K_0C + t_val)) * (1 + x_val) / (K + x_val) / 1000.0
+    v_val = (1 + x_val) / rho_val
+    y_val = _t_to_y(t_val, x_val, convention)
+
+    if volume_flow is not None:
+        m_dot_dry = volume_flow / 3600.0 / v_val
+
+    return MoistAirState(
+        t=t_val, phi=phi_val, x=x_val, h=h_val,
+        t_wb=t_wb_val, t_dp=t_dp_val, p_v=p_v_val,
+        rho=rho_val, v=v_val, y=y_val,
+        m_dot_dry=m_dot_dry, volume_flow=volume_flow,
+        p=p, convention=convention,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Private resolvers — find (t, x) from any pair of psychrometric properties
+# ---------------------------------------------------------------------------
+
+def _resolve_t_x(provided, p):  # noqa: C901
+    keys = frozenset(provided.keys())
+
+    if keys == frozenset({'x', 't_dp'}):
+        raise ValueError(
+            "state(): (x, t_dp) is degenerate — both fix x without "
+            "constraining T. Provide t, phi, or h instead."
+        )
+
+    if 't_dp' in keys:
+        tdp = provided['t_dp']
+        ps_tdp = _p_sat_scalar(tdp)
+        if ps_tdp >= p:
+            raise ValueError(f"t_dp={tdp} °C: saturation pressure exceeds total pressure")
+        x_from_tdp = K * ps_tdp / (p - ps_tdp)
+        rest = {k: v for k, v in provided.items() if k != 't_dp'}
+        rest['x'] = x_from_tdp
+        return _resolve_t_x(rest, p)
+
+    if 't' in keys:
+        t_val = provided['t']
+        if 'x' in keys:
+            return t_val, provided['x']
+        if 'phi' in keys:
+            ps = _p_sat_scalar(t_val)
+            return t_val, K * provided['phi'] * ps / (p - provided['phi'] * ps)
+        if 'h' in keys:
+            return t_val, (provided['h'] - C_PL * t_val) / (R_0 + C_PW * t_val)
+        if 't_wb' in keys:
+            return t_val, _x_from_t_twb(t_val, provided['t_wb'], p)
+
+    if 'x' in keys:
+        x_val = provided['x']
+        if 'phi' in keys:
+            return _t_from_x_phi(x_val, provided['phi'], p), x_val
+        if 'h' in keys:
+            return (provided['h'] - R_0 * x_val) / (C_PL + C_PW * x_val), x_val
+        if 't_wb' in keys:
+            return _t_from_x_twb(x_val, provided['t_wb'], p), x_val
+
+    if keys == frozenset({'phi', 'h'}):
+        return _t_x_from_phi_h(provided['phi'], provided['h'], p)
+    if keys == frozenset({'phi', 't_wb'}):
+        return _t_x_from_phi_twb(provided['phi'], provided['t_wb'], p)
+    if keys == frozenset({'h', 't_wb'}):
+        return _t_x_from_h_twb(provided['h'], provided['t_wb'], p)
+
+    raise ValueError(f"state(): unsupported property pair {sorted(keys)}")  # pragma: no cover
+
+
+def _x_from_t_twb(t, t_wb, p):
+    """Closed-form solution: x from (T_db, T_wb, p)."""
+    ps_wb = _p_sat_scalar(t_wb)
+    if ps_wb >= p:
+        raise ValueError(f"t_wb={t_wb} °C: saturation pressure exceeds total pressure")
+    x_sat = K * ps_wb / (p - ps_wb)
+    num = C_PL * (t_wb - t) + x_sat * (R_0 + (C_PW - C_W_FL) * t_wb)
+    den = R_0 + C_PW * t - C_W_FL * t_wb
+    return num / den
+
+
+def _t_from_x_twb(x, t_wb, p):
+    """Closed-form solution: t from (x, T_wb, p)."""
+    ps_wb = _p_sat_scalar(t_wb)
+    if ps_wb >= p:
+        raise ValueError(f"t_wb={t_wb} °C: saturation pressure exceeds total pressure")
+    x_sat = K * ps_wb / (p - ps_wb)
+    num = (C_PL * t_wb
+           + x_sat * (R_0 + (C_PW - C_W_FL) * t_wb)
+           + x * (C_W_FL * t_wb - R_0))
+    den = C_PL + x * C_PW
+    return num / den
+
+
+def _t_from_x_phi(x, phi, p):
+    """Direct: t from (x, phi, p) via the phi definition."""
+    return temperature_p_sat(x * p / (phi * (K + x)))
+
+
+def _newton_1d(residual, t0, tol=1e-3, max_iter=200, eps=1e-4, label="state"):
+    """Generic 1-D Newton with numerical derivative."""
+    t_val = t0
+    for _ in range(max_iter):
+        r = residual(t_val)
+        if abs(r) <= tol:
+            return t_val
+        deriv = (residual(t_val + eps) - residual(t_val - eps)) / (2 * eps)
+        if deriv == 0:
+            break  # pragma: no cover
+        t_val -= r / deriv
+    raise RuntimeError(f"_newton_1d ({label}) did not converge")  # pragma: no cover
+
+
+def _t_x_from_phi_h(phi, h, p):
+    """Newton on t: enthalpy with x bound to (t, phi)."""
+    def x_at_t(t_test):
+        ps = _p_sat_scalar(t_test)
+        return K * phi * ps / (p - phi * ps)
+
+    def residual(t_test):
+        xv = x_at_t(t_test)
+        return C_PL * t_test + xv * (R_0 + C_PW * t_test) - h
+
+    t_val = _newton_1d(residual, h / C_PL, label="phi,h")
+    return t_val, x_at_t(t_val)
+
+
+def _t_x_from_phi_twb(phi, t_wb, p):
+    """Newton on t: x from (t, phi) equals x from (t, t_wb)."""
+    def x_from_phi(t_test):
+        ps = _p_sat_scalar(t_test)
+        return K * phi * ps / (p - phi * ps)
+
+    def residual(t_test):
+        return x_from_phi(t_test) - _x_from_t_twb(t_test, t_wb, p)
+
+    t_val = _newton_1d(residual, t_wb + 5.0, tol=1e-7, label="phi,t_wb")
+    return t_val, x_from_phi(t_val)
+
+
+def _t_x_from_h_twb(h, t_wb, p):
+    """Newton on t: enthalpy with x bound to (t, t_wb)."""
+    def residual(t_test):
+        xv = _x_from_t_twb(t_test, t_wb, p)
+        return C_PL * t_test + xv * (R_0 + C_PW * t_test) - h
+
+    t_val = _newton_1d(residual, t_wb + 5.0, label="h,t_wb")
+    return t_val, _x_from_t_twb(t_val, t_wb, p)
