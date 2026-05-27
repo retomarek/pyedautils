@@ -864,6 +864,15 @@ class TestPlotMollierHx(unittest.TestCase):
         html = plot_mollier_hx()
         self.assertIn("hasComfort = true", html)
 
+    def test_default_comfort_label_english(self):
+        html = plot_mollier_hx()
+        self.assertIn('comfortLabel = "Comfort zone"', html)
+
+    def test_custom_comfort_label(self):
+        html = plot_mollier_hx(comfort_label='Komfortzone')
+        self.assertIn('comfortLabel = "Komfortzone"', html)
+        self.assertNotIn('comfortLabel = "Comfort zone"', html)
+
     def test_custom_height(self):
         html = plot_mollier_hx(height=500)
         self.assertIn("500", html)

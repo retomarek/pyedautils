@@ -255,6 +255,7 @@ def plot_mollier_hx(
     highlight_color: Optional[str] = 'black',
     states: Optional[Sequence] = None,
     labels: Optional[List[str]] = None,
+    comfort_label: str = 'Comfort zone',
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -291,6 +292,9 @@ def plot_mollier_hx(
             drawn underneath).
         labels: Optional sequence of strings used as point labels (default
             is the index ``"0"``, ``"1"``, …). Length must match ``states``.
+        comfort_label: Legend caption for the comfort-zone polygon. Default
+            ``"Comfort zone"``. Override e.g. to ``"Komfortzone"`` for German
+            output or to a custom designation like ``"DIN EN 16798 Cat II"``.
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
@@ -386,6 +390,7 @@ def plot_mollier_hx(
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
     highlight_color_js = json.dumps(highlight_color)
+    comfort_label_js = json.dumps(comfort_label)
 
     import uuid
     uid = uuid.uuid4().hex[:8]
@@ -421,6 +426,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let statePoints = {states_json};
   let showStateLegend = {state_legend_js};
   let hasComfort = {has_comfort_js};
+  let comfortLabel = {comfort_label_js};
   let highlightColor = {highlight_color_js};
   let colorMap = {season_colors};
 
@@ -574,7 +580,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     }}
   }}
   if (hasComfort && pathos && pathos.length > 0) {{
-    legendItems.push({{type: "rect", color: "#9ACD32", label: "Komfortzone"}});
+    legendItems.push({{type: "rect", color: "#9ACD32", label: comfortLabel}});
   }}
   if (dataRecords && dataRecords.length > 0) {{
     legendItems.push({{type: "circle", color: colorMap["Frühling"], label: "Frühling"}});
