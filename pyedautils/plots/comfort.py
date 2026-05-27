@@ -376,11 +376,13 @@ def plot_mollier_hx(
 
     if comfort_zone is False:
         comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
+        has_comfort_js = "false"
     else:
         cz = comfort_zone or {}
         comfort_t = json.dumps(list(cz.get("temperature", (20, 26))))
         comfort_phi = json.dumps(list(cz.get("rel_humidity", (0.30, 0.65))))
         comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
+        has_comfort_js = "true"
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
     highlight_color_js = json.dumps(highlight_color)
@@ -418,6 +420,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let currentRecord = {current_json};
   let statePoints = {states_json};
   let showStateLegend = {state_legend_js};
+  let hasComfort = {has_comfort_js};
   let highlightColor = {highlight_color_js};
   let colorMap = {season_colors};
 
@@ -454,8 +457,8 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let y = d3.scaleLinear().range([height, 0]).domain(domainY);
 
   let line = d3.line().x(d => x(d.x)).y(d => y(d.y));
-  let pathos = createComfort(rangeT, rangePhi, rangeX, p, mollier);
-  if (pathos && pathos.length > 0) {{
+  let pathos = hasComfort ? createComfort(rangeT, rangePhi, rangeX, p, mollier) : null;
+  if (hasComfort && pathos && pathos.length > 0) {{
     plot.append("path").datum(pathos).attr("d", line)
       .attr("fill", "yellowgreen").attr("fill-opacity", 0.4)
       .attr("stroke", "yellowgreen");
@@ -570,7 +573,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       legendItems.push({{type: "process", number: sp.number, label: sp.label}});
     }}
   }}
-  if (pathos && pathos.length > 0) {{
+  if (hasComfort && pathos && pathos.length > 0) {{
     legendItems.push({{type: "rect", color: "#9ACD32", label: "Komfortzone"}});
   }}
   if (dataRecords && dataRecords.length > 0) {{

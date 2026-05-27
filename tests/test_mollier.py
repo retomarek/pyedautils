@@ -854,6 +854,16 @@ class TestPlotMollierHx(unittest.TestCase):
         html = plot_mollier_hx(comfort_zone=False)
         self.assertIn("[0,0]", html)
 
+    def test_no_comfort_zone_hides_legend_entry(self):
+        # When comfort_zone=False, the "Komfortzone" legend row must not appear.
+        html = plot_mollier_hx(comfort_zone=False)
+        self.assertIn("hasComfort = false", html)
+
+    def test_default_comfort_zone_shows_legend_entry(self):
+        # Default call enables comfort zone and produces the flag.
+        html = plot_mollier_hx()
+        self.assertIn("hasComfort = true", html)
+
     def test_custom_height(self):
         html = plot_mollier_hx(height=500)
         self.assertIn("500", html)
