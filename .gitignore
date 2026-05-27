@@ -11,3 +11,4 @@ docs/_build/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+*.pyc

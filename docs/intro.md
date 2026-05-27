@@ -8,6 +8,7 @@
 - **{doc}`Geocoding & coordinates <api/geopy>`** -- Address geocoding (Nominatim), WGS84-to-Swiss-LV95 conversion, altitude lookup via opentopodata.org and geo.admin.ch, Swiss postal code resolution, and Haversine distance calculation.
 - **{doc}`Plotting <api/plots>`** -- Plotly-based daily profile visualizations: a 4x7 subplot grid (seasons x weekdays) with median lines and quantile confidence bands, plus a decomposed seasonal profile view.
 - **{doc}`Season detection <api/season>`** -- Determine the season for any date using astronomical (ephem-based equinox/solstice) or meteorological definitions, with support for both hemispheres and custom labels.
+- **{doc}`Solar position <api/sun>`** -- Sun elevation and azimuth (ephem-based) for a location and time, as a single value or vectorized over a pandas Series/DatetimeIndex.
 - **{doc}`MeteoSwiss stations <api/meteo_swiss>`** -- Find the nearest MeteoSwiss weather station matching a given sensor type within an altitude tolerance.
 
 ## Quick start

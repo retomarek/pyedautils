@@ -3,3 +3,4 @@
 Usage examples for data preprocessing utilities.
 
 - {doc}`season` — Season detection (astronomical and meteorological)
+- {doc}`sun` — Solar position (elevation and azimuth)

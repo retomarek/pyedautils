@@ -12,6 +12,7 @@ A pip-installable library of compact utility functions for analyzing and visuali
 - **Data I/O** — Save/load DataFrames in CSV, pickle, compressed pickle, and JSON formats
 - **Geocoding** — Address geocoding, WGS84/LV95 conversion, altitude lookup, Swiss postal codes, Haversine distance
 - **Season detection** — Astronomical or meteorological season classification for any date
+- **Solar position** — Sun elevation and azimuth for a location and time (single timestamp or vectorized over a pandas Series/DatetimeIndex)
 - **MeteoSwiss** — Find nearest weather station by sensor type and altitude
 
 ## Installation

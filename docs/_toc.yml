@@ -13,6 +13,7 @@ chapters:
       - file: api/data_prep
         sections:
           - file: api/season
+          - file: api/sun
       - file: api/weather
         sections:
           - file: api/meteo_swiss
@@ -38,6 +39,7 @@ chapters:
       - file: examples/data_prep
         sections:
           - file: examples/season
+          - file: examples/sun
       - file: examples/weather
         sections:
           - file: examples/meteo_swiss
