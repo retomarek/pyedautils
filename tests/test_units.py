@@ -77,6 +77,11 @@ class TestPressure(unittest.TestCase):
         # 1 atm ≈ 29.92 inHg
         self.assertAlmostEqual(units.pa_to_inhg(101325.0), 29.92, delta=0.01)
 
+    def test_inhg_round_trip(self):
+        for p in [50000, 80000, 101325]:
+            self.assertAlmostEqual(units.inhg_to_pa(units.pa_to_inhg(p)), p,
+                                   places=6)
+
     def test_kpa_round_trip(self):
         for p in [50000, 80000, 101325, 110000]:
             self.assertAlmostEqual(units.kpa_to_pa(units.pa_to_kpa(p)), p,
@@ -120,6 +125,11 @@ class TestDensity(unittest.TestCase):
     def test_known(self):
         # Standard dry air at 20 °C ≈ 1.204 kg/m³ ≈ 0.0751 lb/ft³
         self.assertAlmostEqual(units.kgm3_to_lbft3(1.204), 0.0752, delta=0.001)
+
+    def test_round_trip(self):
+        for rho in [0.5, 1.0, 1.204, 2.0]:
+            self.assertAlmostEqual(
+                units.lbft3_to_kgm3(units.kgm3_to_lbft3(rho)), rho, places=10)
 
 
 class TestSpecificVolume(unittest.TestCase):

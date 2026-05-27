@@ -706,6 +706,32 @@ class TestProcesses(unittest.TestCase):
         with self.assertRaises(ValueError):
             heat_recovery(s, s, eps_sensible=0.5, eps_latent=-0.1)
 
+    def test_heat_recovery_pressure_mismatch_raises(self):
+        s_a = state(t=20.0, phi=0.5, p=self.P)
+        s_b = state(t=22.0, phi=0.4, p=self.P - 5000)
+        with self.assertRaises(ValueError):
+            heat_recovery(s_a, s_b, eps_sensible=0.7)
+
+    def test_mix_convention_mismatch_raises(self):
+        s_a = state(t=20.0, phi=0.5, p=self.P, m_dot_dry=0.5,
+                    convention='classical')
+        s_b = state(t=22.0, phi=0.4, p=self.P, m_dot_dry=0.5,
+                    convention='glueck')
+        with self.assertRaises(ValueError):
+            mix(s_a, s_b)
+
+    def test_humidify_isothermal_phi_unreachable_raises(self):
+        # At 101 °C, p_sat exceeds atmospheric → high phi unreachable.
+        s = state(t=101.0, x=0.05, p=self.P)
+        with self.assertRaises(ValueError):
+            humidify_isothermal(s, phi_out=0.99)
+
+    def test_humidify_adiabatic_drying_phi_raises(self):
+        # Already humid air, asking for lower phi via adiabatic process.
+        s = state(t=15.0, phi=0.95, p=self.P)
+        with self.assertRaises(ValueError):
+            humidify_adiabatic(s, phi_out=0.30)
+
     # ---------------------------------------------------------------------
     # chain_summary
     # ---------------------------------------------------------------------
@@ -739,6 +765,33 @@ class TestProcesses(unittest.TestCase):
             humidify_adiabatic(s, x_out=s.x * 1.5),
         ):
             self.assertEqual(new_s.m_dot_dry, 0.7)
+
+
+class TestExtremeGuards(unittest.TestCase):
+    """Defensive error branches that protect against physically impossible
+    inputs (very high T where p_sat exceeds total pressure).
+    """
+
+    def test_wet_bulb_above_boiling_at_atm_raises(self):
+        # T_db so high that the first iteration step lands on T where
+        # p_sat(T) >= 101325 Pa.
+        xv, _ = get_x_y(100.0, 0.5, P_STD)
+        with self.assertRaises(ValueError):
+            wet_bulb(200.0, xv, P_STD)
+
+    def test_state_t_wb_above_boiling_raises(self):
+        # (t, t_wb) where p_sat(t_wb) >= p.
+        with self.assertRaises(ValueError):
+            state(t=120.0, t_wb=110.0, p=P_STD)
+
+    def test_state_x_and_t_wb_above_boiling_raises(self):
+        with self.assertRaises(ValueError):
+            state(x=0.01, t_wb=110.0, p=P_STD)
+
+    def test_state_t_dp_above_boiling_raises(self):
+        # T_dp where p_sat(T_dp) >= p.
+        with self.assertRaises(ValueError):
+            state(t=120.0, t_dp=110.0, p=P_STD)
 
 
 class TestPlotMollierHx(unittest.TestCase):
