@@ -764,3 +764,311 @@ def _t_x_from_h_twb(h, t_wb, p):
 
     t_val = _newton_1d(residual, t_wb + 5.0, label="h,t_wb")
     return t_val, _x_from_t_twb(t_val, t_wb, p)
+
+
+# ---------------------------------------------------------------------------
+# Processes — psychrometric transformations between states
+# ---------------------------------------------------------------------------
+# Each process function takes one (or two, for mix/heat_recovery) input
+# MoistAirState plus the process spec, and returns ``(new_state, balance)``.
+# Mass flow propagates through single-stream processes (heat, cool, humidify
+# preserve ``m_dot_dry``); ``mix`` sums dry-air mass flows.
+
+
+@dataclass(frozen=True)
+class ProcessBalance:
+    """Energy and water balance for one psychrometric process step.
+
+    Attributes:
+        name:             process identifier ('heat', 'cool', …)
+        dh:               specific enthalpy change [kJ/kg dry air]
+                          (positive = heating, negative = cooling).
+                          0 by convention for ``mix``.
+        dx:               humidity-ratio change [kg/kg dry air]
+                          (positive = humidification, negative = drying).
+                          0 by convention for ``mix``.
+        power_kw:         m_dot_dry × dh [kW]; None when m_dot_dry unset
+        condensate_kgh:   m_dot_dry × |dx| × 3600 [kg/h] for cooling that
+                          crosses the dew point; None otherwise
+        water_kgh:        m_dot_dry × dx × 3600 [kg/h] for humidification;
+                          None otherwise
+        epsilon:          efficiency for heat_recovery; None otherwise
+    """
+    name: str
+    dh: float
+    dx: float
+    power_kw: Optional[float] = None
+    condensate_kgh: Optional[float] = None
+    water_kgh: Optional[float] = None
+    epsilon: Optional[float] = None
+
+
+def _exactly_one(name, **kwargs):
+    """Helper: ensure exactly one keyword arg is non-None; return its value."""
+    given = {k: v for k, v in kwargs.items() if v is not None}
+    if len(given) != 1:
+        raise ValueError(
+            f"{name}: specify exactly one of {sorted(kwargs.keys())}; "
+            f"got {sorted(given.keys())}"
+        )
+    return next(iter(given.items()))
+
+
+def _state_tx(t, x, ref):
+    """Build a new state at (t, x) preserving pressure/convention/m_dot from
+    a reference state."""
+    return state(t=t, x=x, p=ref.p, convention=ref.convention,
+                 m_dot_dry=ref.m_dot_dry)
+
+
+def _power_kw(m_dot_dry, dh):
+    """Compute kW = m_dot_dry × dh. Returns None if mass flow unknown."""
+    return None if m_dot_dry is None else m_dot_dry * dh
+
+
+def heat(s, t_out=None, dt=None, power_kw=None):
+    """Sensible heating at constant absolute humidity x.
+
+    Args:
+        s:        input MoistAirState
+        t_out:    target dry-bulb temperature [°C]
+        dt:       temperature change [K]; positive = heating
+        power_kw: heating power [kW]; requires ``s.m_dot_dry`` to be set
+
+    Returns:
+        (new_state, ProcessBalance)
+    """
+    mode, val = _exactly_one('heat', t_out=t_out, dt=dt, power_kw=power_kw)
+    if mode == 'power_kw':
+        if s.m_dot_dry is None:
+            raise ValueError("heat(power_kw=...) requires m_dot_dry on the input state")
+        dh = val / s.m_dot_dry
+        h_new = s.h + dh
+        t_new = (h_new - R_0 * s.x) / (C_PL + C_PW * s.x)
+    elif mode == 'dt':
+        t_new = s.t + val
+    else:  # t_out
+        t_new = val
+
+    new_s = _state_tx(t_new, s.x, s)
+    dh = new_s.h - s.h
+    return new_s, ProcessBalance(
+        name='heat',
+        dh=dh, dx=0.0,
+        power_kw=_power_kw(s.m_dot_dry, dh),
+    )
+
+
+def cool(s, t_out=None, dt=None):
+    """Cooling. Sensible while T_out ≥ dew point; latent below (output state
+    saturated at the coil temperature, BF = 0).
+
+    Args:
+        s:      input MoistAirState
+        t_out:  target dry-bulb temperature [°C] (= coil temperature in the
+                latent regime)
+        dt:     temperature change [K]; should be negative
+
+    Returns:
+        (new_state, ProcessBalance)
+    """
+    mode, val = _exactly_one('cool', t_out=t_out, dt=dt)
+    t_target = val if mode == 't_out' else s.t + val
+    if t_target >= s.t:
+        raise ValueError(
+            f"cool(): target {t_target} °C is not below inlet {s.t} °C"
+        )
+
+    if t_target >= s.t_dp:
+        # Sensible regime — x preserved.
+        new_s = _state_tx(t_target, s.x, s)
+        dh = new_s.h - s.h
+        return new_s, ProcessBalance(
+            name='cool',
+            dh=dh, dx=0.0,
+            power_kw=_power_kw(s.m_dot_dry, dh),
+        )
+
+    # Latent regime — outlet saturated at the coil temperature.
+    ps = _p_sat_scalar(t_target)
+    x_new = K * ps / (s.p - ps)
+    new_s = _state_tx(t_target, x_new, s)
+    dh = new_s.h - s.h
+    dx = new_s.x - s.x  # negative — water condensed out
+    condensate = None if s.m_dot_dry is None else -dx * s.m_dot_dry * 3600.0
+    return new_s, ProcessBalance(
+        name='cool',
+        dh=dh, dx=dx,
+        power_kw=_power_kw(s.m_dot_dry, dh),
+        condensate_kgh=condensate,
+    )
+
+
+def humidify_isothermal(s, x_out=None, phi_out=None):
+    """Steam humidifier: T stays constant, water vapour added.
+
+    Args:
+        s:        input MoistAirState
+        x_out:    target humidity ratio [kg/kg]
+        phi_out:  target relative humidity [0..1]
+
+    Returns:
+        (new_state, ProcessBalance)
+    """
+    mode, val = _exactly_one('humidify_isothermal', x_out=x_out, phi_out=phi_out)
+    if mode == 'phi_out':
+        ps = _p_sat_scalar(s.t)
+        if val * ps >= s.p:
+            raise ValueError(f"humidify_isothermal: phi_out={val} unreachable at t={s.t}")
+        x_new = K * val * ps / (s.p - val * ps)
+    else:
+        x_new = val
+
+    if x_new <= s.x:
+        raise ValueError(
+            f"humidify_isothermal: target x={x_new:.5g} ≤ inlet x={s.x:.5g}"
+        )
+
+    new_s = _state_tx(s.t, x_new, s)
+    dh = new_s.h - s.h
+    dx = new_s.x - s.x
+    water_kgh = None if s.m_dot_dry is None else dx * s.m_dot_dry * 3600.0
+    return new_s, ProcessBalance(
+        name='humidify_isothermal',
+        dh=dh, dx=dx,
+        power_kw=_power_kw(s.m_dot_dry, dh),
+        water_kgh=water_kgh,
+    )
+
+
+def humidify_adiabatic(s, x_out=None, phi_out=None):
+    """Adiabatic humidifier (evaporative): h stays constant, water added,
+    T drops.
+
+    Args:
+        s:        input MoistAirState
+        x_out:    target humidity ratio [kg/kg]
+        phi_out:  target relative humidity [0..1]
+
+    Returns:
+        (new_state, ProcessBalance)
+    """
+    mode, val = _exactly_one('humidify_adiabatic', x_out=x_out, phi_out=phi_out)
+    if mode == 'x_out':
+        x_new = val
+        t_new = (s.h - R_0 * x_new) / (C_PL + C_PW * x_new)
+    else:
+        # Solve (h_const, phi) → (t_new, x_new) using the existing helper.
+        t_new, x_new = _t_x_from_phi_h(val, s.h, s.p)
+
+    if x_new <= s.x:
+        raise ValueError(
+            f"humidify_adiabatic: target x={x_new:.5g} ≤ inlet x={s.x:.5g}"
+        )
+
+    new_s = _state_tx(t_new, x_new, s)
+    dh = new_s.h - s.h  # ≈ 0 by construction
+    dx = new_s.x - s.x
+    water_kgh = None if s.m_dot_dry is None else dx * s.m_dot_dry * 3600.0
+    return new_s, ProcessBalance(
+        name='humidify_adiabatic',
+        dh=dh, dx=dx,
+        power_kw=_power_kw(s.m_dot_dry, dh),
+        water_kgh=water_kgh,
+    )
+
+
+def mix(s_a, s_b):
+    """Adiabatic mixing of two moist-air streams.
+
+    Both inputs must have ``m_dot_dry`` set and matching pressure. The output
+    has ``m_dot_dry = s_a.m_dot_dry + s_b.m_dot_dry`` and the mass-weighted
+    x and h.
+
+    Returns:
+        (mixed_state, ProcessBalance with dh=dx=0)
+    """
+    if s_a.m_dot_dry is None or s_b.m_dot_dry is None:
+        raise ValueError("mix() requires m_dot_dry on both input states")
+    if abs(s_a.p - s_b.p) > 1.0:
+        raise ValueError(f"mix(): pressures differ ({s_a.p} vs {s_b.p})")
+    if s_a.convention != s_b.convention:
+        raise ValueError(
+            f"mix(): convention mismatch ({s_a.convention!r} vs {s_b.convention!r})"
+        )
+
+    m_a = s_a.m_dot_dry
+    m_b = s_b.m_dot_dry
+    m_total = m_a + m_b
+    x_mix = (m_a * s_a.x + m_b * s_b.x) / m_total
+    h_mix = (m_a * s_a.h + m_b * s_b.h) / m_total
+    t_mix = (h_mix - R_0 * x_mix) / (C_PL + C_PW * x_mix)
+
+    new_s = state(t=t_mix, x=x_mix, p=s_a.p, convention=s_a.convention,
+                  m_dot_dry=m_total)
+
+    return new_s, ProcessBalance(name='mix', dh=0.0, dx=0.0)
+
+
+def heat_recovery(supply, extract, eps_sensible, eps_latent=0.0):
+    """Two-stream heat (and optionally moisture) recovery exchanger.
+
+    Returns the new state of the SUPPLY side after recovery. The extract side
+    is treated as an input boundary condition; compute it separately if you
+    need the exhaust state.
+
+    Args:
+        supply:       inlet state of the supply stream
+        extract:      inlet state of the extract (return) stream
+        eps_sensible: temperature effectiveness [0..1]
+        eps_latent:   humidity effectiveness [0..1]; default 0 (sensible-only HX)
+
+    Returns:
+        (new_supply_state, ProcessBalance)
+    """
+    if not 0.0 <= eps_sensible <= 1.0:
+        raise ValueError(f"eps_sensible must be in [0, 1]; got {eps_sensible}")
+    if not 0.0 <= eps_latent <= 1.0:
+        raise ValueError(f"eps_latent must be in [0, 1]; got {eps_latent}")
+    if abs(supply.p - extract.p) > 1.0:
+        raise ValueError(f"heat_recovery(): pressures differ ({supply.p} vs {extract.p})")
+
+    t_new = supply.t + eps_sensible * (extract.t - supply.t)
+    x_new = supply.x + eps_latent * (extract.x - supply.x)
+
+    new_s = _state_tx(t_new, x_new, supply)
+    dh = new_s.h - supply.h
+    dx = new_s.x - supply.x
+    return new_s, ProcessBalance(
+        name='heat_recovery',
+        dh=dh, dx=dx,
+        power_kw=_power_kw(supply.m_dot_dry, dh),
+        epsilon=eps_sensible,
+    )
+
+
+def chain_summary(steps):
+    """Tabulate a sequence of (label, ProcessBalance) tuples as a DataFrame.
+
+    Args:
+        steps: iterable of ``(label, ProcessBalance)`` pairs.
+
+    Returns:
+        pandas.DataFrame indexed by ``label`` with columns
+        ``[name, dh, dx, power_kw, condensate_kgh, water_kgh]``.
+    """
+    import pandas as pd  # local import keeps the rest of the module pandas-free
+
+    rows = []
+    labels = []
+    for label, b in steps:
+        labels.append(label)
+        rows.append({
+            'name': b.name,
+            'dh': b.dh,
+            'dx': b.dx,
+            'power_kw': b.power_kw,
+            'condensate_kgh': b.condensate_kgh,
+            'water_kgh': b.water_kgh,
+        })
+    return pd.DataFrame(rows, index=labels)

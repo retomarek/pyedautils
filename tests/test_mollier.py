@@ -7,13 +7,21 @@ from pyedautils._mollier import (
     DEFAULT_CONVENTION,
     MoistAirState,
     P_STD,
+    ProcessBalance,
     R_0,
+    chain_summary,
+    cool,
     create_comfort,
     density,
     dew_point,
     enthalpy,
     get_x_y,
     get_x_y_tx,
+    heat,
+    heat_recovery,
+    humidify_adiabatic,
+    humidify_isothermal,
+    mix,
     p_sat,
     pressure_from_altitude,
     rel_humidity,
@@ -512,6 +520,225 @@ class TestStateFactory(unittest.TestCase):
     def test_state_is_dataclass(self):
         s = state(t=20.0, phi=0.5, p=P_STD)
         self.assertIsInstance(s, MoistAirState)
+
+
+class TestProcesses(unittest.TestCase):
+    """Phase-3 tests: heat, cool, humidify (iso/adiabatic), mix, heat_recovery,
+    chain_summary.
+    """
+
+    P = P_STD
+
+    # ---------------------------------------------------------------------
+    # heat
+    # ---------------------------------------------------------------------
+
+    def test_heat_preserves_x(self):
+        s0 = state(t=15.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        s1, b = heat(s0, dt=10.0)
+        self.assertIsInstance(b, ProcessBalance)
+        self.assertEqual(b.name, 'heat')
+        self.assertAlmostEqual(s1.t, 25.0, places=2)
+        self.assertAlmostEqual(s1.x, s0.x, places=8)  # x preserved
+        self.assertEqual(s1.m_dot_dry, 0.5)
+        self.assertGreater(b.dh, 0)
+        self.assertEqual(b.dx, 0.0)
+
+    def test_heat_t_out_mode(self):
+        s0 = state(t=15.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        s1, _ = heat(s0, t_out=22.0)
+        self.assertAlmostEqual(s1.t, 22.0, places=2)
+
+    def test_heat_power_kw_mode(self):
+        s0 = state(t=15.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        # 5 kW into 0.5 kg/s = 10 kJ/kg added
+        s1, b = heat(s0, power_kw=5.0)
+        self.assertAlmostEqual(b.power_kw, 5.0, places=2)
+        self.assertAlmostEqual(b.dh, 10.0, delta=0.1)
+
+    def test_heat_power_kw_requires_mass_flow(self):
+        s0 = state(t=15.0, phi=0.5, p=self.P)
+        with self.assertRaises(ValueError):
+            heat(s0, power_kw=5.0)
+
+    def test_heat_requires_exactly_one_spec(self):
+        s0 = state(t=15.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        with self.assertRaises(ValueError):
+            heat(s0)
+        with self.assertRaises(ValueError):
+            heat(s0, dt=5, t_out=22)
+
+    # ---------------------------------------------------------------------
+    # cool
+    # ---------------------------------------------------------------------
+
+    def test_cool_sensible_above_dew_point(self):
+        # Inlet 30 °C / 40 % → t_dp ≈ 14 °C. Cool to 20 °C: sensible only.
+        s0 = state(t=30.0, phi=0.4, p=self.P, m_dot_dry=0.5)
+        s1, b = cool(s0, t_out=20.0)
+        self.assertAlmostEqual(s1.x, s0.x, places=8)
+        self.assertEqual(b.dx, 0.0)
+        self.assertIsNone(b.condensate_kgh)
+        self.assertLess(b.power_kw, 0)  # cooling consumes negative power
+
+    def test_cool_latent_below_dew_point(self):
+        # Inlet 32 °C / 65 % → t_dp ≈ 24 °C. Cool to 14 °C: condenses.
+        s0 = state(t=32.0, phi=0.65, p=self.P, m_dot_dry=0.5)
+        s1, b = cool(s0, t_out=14.0)
+        self.assertAlmostEqual(s1.t, 14.0, places=2)
+        self.assertAlmostEqual(s1.phi, 1.0, places=2)  # saturated outlet
+        self.assertLess(s1.x, s0.x)  # water removed
+        self.assertGreater(b.condensate_kgh, 0)
+
+    def test_cool_target_above_inlet_raises(self):
+        s0 = state(t=20.0, phi=0.5, p=self.P)
+        with self.assertRaises(ValueError):
+            cool(s0, t_out=22.0)
+
+    def test_cool_dt_mode(self):
+        s0 = state(t=25.0, phi=0.4, p=self.P)
+        s1, _ = cool(s0, dt=-5.0)
+        self.assertAlmostEqual(s1.t, 20.0, places=2)
+
+    # ---------------------------------------------------------------------
+    # humidify_isothermal
+    # ---------------------------------------------------------------------
+
+    def test_humidify_iso_keeps_temperature(self):
+        s0 = state(t=21.0, phi=0.20, p=self.P, m_dot_dry=0.5)
+        s1, b = humidify_isothermal(s0, phi_out=0.45)
+        self.assertAlmostEqual(s1.t, 21.0, places=2)
+        self.assertAlmostEqual(s1.phi, 0.45, delta=1e-3)
+        self.assertGreater(b.water_kgh, 0)
+        self.assertGreater(b.power_kw, 0)  # steam adds energy
+
+    def test_humidify_iso_x_out_mode(self):
+        s0 = state(t=21.0, phi=0.20, p=self.P)
+        x_target = 0.008
+        s1, _ = humidify_isothermal(s0, x_out=x_target)
+        self.assertAlmostEqual(s1.x, x_target, places=6)
+        self.assertAlmostEqual(s1.t, 21.0, places=2)
+
+    def test_humidify_iso_drying_raises(self):
+        s0 = state(t=21.0, phi=0.80, p=self.P)
+        with self.assertRaises(ValueError):
+            humidify_isothermal(s0, phi_out=0.20)
+
+    # ---------------------------------------------------------------------
+    # humidify_adiabatic
+    # ---------------------------------------------------------------------
+
+    def test_humidify_adiabatic_preserves_enthalpy(self):
+        s0 = state(t=21.0, phi=0.20, p=self.P, m_dot_dry=0.5)
+        s1, b = humidify_adiabatic(s0, phi_out=0.45)
+        self.assertAlmostEqual(s1.h, s0.h, delta=0.05)  # adiabatic
+        self.assertLess(s1.t, s0.t)  # evaporative cooling
+        self.assertAlmostEqual(s1.phi, 0.45, delta=1e-3)
+        self.assertGreater(b.water_kgh, 0)
+        self.assertAlmostEqual(b.power_kw, 0.0, delta=0.05)
+
+    def test_humidify_adiabatic_x_out_mode(self):
+        s0 = state(t=25.0, phi=0.30, p=self.P)
+        x_target = s0.x * 1.5
+        s1, _ = humidify_adiabatic(s0, x_out=x_target)
+        self.assertAlmostEqual(s1.x, x_target, places=6)
+        self.assertAlmostEqual(s1.h, s0.h, delta=0.05)
+
+    # ---------------------------------------------------------------------
+    # mix
+    # ---------------------------------------------------------------------
+
+    def test_mix_equal_streams_averages(self):
+        s_a = state(t=10.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        s_b = state(t=30.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        s_mix, b = mix(s_a, s_b)
+        # Mass-flow-weighted average — equal masses → arithmetic mean
+        self.assertAlmostEqual(s_mix.x, 0.5 * (s_a.x + s_b.x), places=8)
+        self.assertAlmostEqual(s_mix.h, 0.5 * (s_a.h + s_b.h), places=4)
+        self.assertAlmostEqual(s_mix.m_dot_dry, 1.0, places=8)
+        self.assertEqual(b.name, 'mix')
+
+    def test_mix_weighted_by_mass_flow(self):
+        # 1:3 ratio
+        s_a = state(t=10.0, phi=0.5, p=self.P, m_dot_dry=0.25)
+        s_b = state(t=30.0, phi=0.5, p=self.P, m_dot_dry=0.75)
+        s_mix, _ = mix(s_a, s_b)
+        h_expected = 0.25 * s_a.h + 0.75 * s_b.h
+        self.assertAlmostEqual(s_mix.h, h_expected, places=4)
+
+    def test_mix_requires_mass_flow(self):
+        s_a = state(t=10.0, phi=0.5, p=self.P)  # no m_dot
+        s_b = state(t=30.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        with self.assertRaises(ValueError):
+            mix(s_a, s_b)
+
+    def test_mix_pressure_mismatch_raises(self):
+        s_a = state(t=10.0, phi=0.5, p=self.P, m_dot_dry=0.5)
+        s_b = state(t=30.0, phi=0.5, p=self.P - 5000, m_dot_dry=0.5)
+        with self.assertRaises(ValueError):
+            mix(s_a, s_b)
+
+    # ---------------------------------------------------------------------
+    # heat_recovery
+    # ---------------------------------------------------------------------
+
+    def test_heat_recovery_sensible_only(self):
+        supply = state(t=0.0, phi=0.8, p=self.P, m_dot_dry=0.5)
+        extract = state(t=22.0, phi=0.4, p=self.P, m_dot_dry=0.5)
+        s1, b = heat_recovery(supply, extract, eps_sensible=0.5)
+        self.assertAlmostEqual(s1.t, 11.0, places=2)  # 0 + 0.5*(22-0)
+        self.assertAlmostEqual(s1.x, supply.x, places=8)  # no latent
+        self.assertEqual(b.epsilon, 0.5)
+        self.assertGreater(b.power_kw, 0)
+
+    def test_heat_recovery_with_latent(self):
+        supply = state(t=0.0, phi=0.8, p=self.P, m_dot_dry=0.5)
+        extract = state(t=22.0, phi=0.4, p=self.P, m_dot_dry=0.5)
+        s1, _ = heat_recovery(supply, extract, eps_sensible=0.6, eps_latent=0.6)
+        # x_supply increases toward x_extract
+        self.assertGreater(s1.x, supply.x)
+        self.assertLess(s1.x, extract.x)
+
+    def test_heat_recovery_eps_out_of_range_raises(self):
+        s = state(t=20.0, phi=0.5, p=self.P)
+        with self.assertRaises(ValueError):
+            heat_recovery(s, s, eps_sensible=1.5)
+        with self.assertRaises(ValueError):
+            heat_recovery(s, s, eps_sensible=0.5, eps_latent=-0.1)
+
+    # ---------------------------------------------------------------------
+    # chain_summary
+    # ---------------------------------------------------------------------
+
+    def test_chain_summary_returns_dataframe(self):
+        import pandas as pd
+        s0 = state(t=-5.0, phi=0.8, p=self.P, m_dot_dry=0.5)
+        s_extract = state(t=22.0, phi=0.4, p=self.P, m_dot_dry=0.5)
+        s1, b1 = heat_recovery(s0, s_extract, eps_sensible=0.7)
+        s2, b2 = heat(s1, t_out=21.0)
+        s3, b3 = humidify_adiabatic(s2, phi_out=0.45)
+
+        df = chain_summary([('WRG', b1), ('Heizung', b2), ('Befeuchter', b3)])
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertEqual(list(df.index), ['WRG', 'Heizung', 'Befeuchter'])
+        self.assertIn('power_kw', df.columns)
+        self.assertIn('water_kgh', df.columns)
+        self.assertIn('condensate_kgh', df.columns)
+        # Befeuchter row has water but no condensate
+        self.assertGreater(df.loc['Befeuchter', 'water_kgh'], 0)
+
+    # ---------------------------------------------------------------------
+    # Mass-flow propagation through single-stream processes
+    # ---------------------------------------------------------------------
+
+    def test_m_dot_propagates_through_single_stream_processes(self):
+        s = state(t=20.0, phi=0.5, p=self.P, m_dot_dry=0.7)
+        for new_s, _ in (
+            heat(s, dt=5.0),
+            humidify_isothermal(s, phi_out=0.7),
+            humidify_adiabatic(s, x_out=s.x * 1.5),
+        ):
+            self.assertEqual(new_s.m_dot_dry, 0.7)
 
 
 class TestPlotMollierHx(unittest.TestCase):
