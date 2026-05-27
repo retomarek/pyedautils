@@ -1,6 +1,6 @@
 """Thermal comfort and psychrometric chart plots."""
 
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -253,6 +253,8 @@ def plot_mollier_hx(
     convention: str = 'classical',
     highlight_latest: bool = True,
     highlight_color: Optional[str] = 'black',
+    states: Optional[Sequence] = None,
+    labels: Optional[List[str]] = None,
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -281,6 +283,14 @@ def plot_mollier_hx(
         highlight_color: CSS colour used for the latest-row overlay. Default
             ``'black'``. Pass ``None`` to use that row's season colour (so the
             highlight is visible only by size/order, not by colour).
+        states: Optional sequence of ``MoistAirState`` objects (from
+            :func:`pyedautils._mollier.state`). When supplied, each state is
+            drawn as a numbered point and consecutive states are connected by
+            arrows — a psychrometric process chain in the spirit of
+            psychrosim.com. Works alongside ``data`` (historical scatter is
+            drawn underneath).
+        labels: Optional sequence of strings used as point labels (default
+            is the index ``"0"``, ``"1"``, …). Length must match ``states``.
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
@@ -332,6 +342,30 @@ def plot_mollier_hx(
                 idx_latest = df["timestamp"].values.argmax()
                 current_json = json.dumps(records[idx_latest])
 
+    # Process-chain points
+    states_json = "null"
+    if states is not None and len(states) > 0:
+        if labels is not None and len(labels) != len(states):
+            raise ValueError(
+                f"labels length ({len(labels)}) must match states length "
+                f"({len(states)})"
+            )
+        state_records = []
+        for i, s in enumerate(states):
+            lab = labels[i] if labels is not None else str(i)
+            state_records.append({
+                "x": float(s.x),
+                "y": float(s.y),
+                "label": str(lab),
+                "t": round(float(s.t), 2),
+                "phi": round(float(s.phi) * 100, 2),
+                "xg": round(float(s.x) * 1000, 2),
+                "h": round(float(s.h), 2),
+                "t_wb": round(float(s.t_wb), 2),
+                "t_dp": round(float(s.t_dp), 2),
+            })
+        states_json = json.dumps(state_records)
+
     if comfort_zone is False:
         comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
     else:
@@ -374,6 +408,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let rangeX = {comfort_x};
   let dataRecords = {data_json};
   let currentRecord = {current_json};
+  let statePoints = {states_json};
   let highlightColor = {highlight_color_js};
   let colorMap = {season_colors};
 
@@ -388,9 +423,18 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let svg = d3.select("#{diagram_id}").append("svg")
     .attr("width", Width).attr("height", Height);
   let bg = svg.append("g").attr("id", "{plot_id}");
-  let clip = svg.append("defs").append("svg:clipPath")
+  let defs = svg.append("defs");
+  defs.append("svg:clipPath")
     .attr("id", "{clip_id}").append("svg:rect")
     .attr("width", width).attr("height", height);
+  // Arrow head for process-chain segments.
+  defs.append("marker")
+    .attr("id", "arrow-{uid}")
+    .attr("viewBox", "0 0 10 10")
+    .attr("refX", 9).attr("refY", 5)
+    .attr("markerWidth", 6).attr("markerHeight", 6)
+    .attr("orient", "auto")
+    .append("path").attr("d", "M 0 0 L 10 5 L 0 10 z").attr("fill", "#444");
   let plot = svg.append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
     .attr("clip-path", "url(#{clip_id})");
@@ -491,6 +535,49 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
         .style("font-family", "Tahoma, Geneva, sans-serif")
         .style("font-size", "12px");
     }});
+  }}
+
+  // Process chain: numbered state points joined by arrows.
+  if (statePoints && statePoints.length > 0) {{
+    let tooltip = d3.select("#{tooltip_id}");
+    let chain = plot.append("g").attr("id", "process-chain");
+
+    for (let i = 1; i < statePoints.length; i++) {{
+      let a = statePoints[i - 1];
+      let b = statePoints[i];
+      chain.append("line")
+        .attr("x1", x(a.x)).attr("y1", y(a.y))
+        .attr("x2", x(b.x)).attr("y2", y(b.y))
+        .attr("stroke", "#444").attr("stroke-width", 2)
+        .attr("marker-end", "url(#arrow-{uid})");
+    }}
+
+    let nodes = chain.selectAll("g.state").data(statePoints).enter()
+      .append("g").attr("class", "state")
+      .attr("transform", d => "translate(" + x(d.x) + "," + y(d.y) + ")")
+      .style("cursor", "pointer")
+      .on("mouseover", function(d) {{
+        tooltip.style("opacity", 1)
+          .style("background-color", "#222")
+          .style("color", "white")
+          .html(d.label
+            + "<br>T: " + d.t + " °C"
+            + "<br>φ: " + d.phi + " %"
+            + "<br>x: " + d.xg + " g/kg"
+            + "<br>h: " + d.h + " kJ/kg")
+          .style("left", (d3.event.pageX + 15) + "px")
+          .style("top", (d3.event.pageY - 40) + "px");
+      }})
+      .on("mouseout", function() {{ tooltip.style("opacity", 0); }});
+
+    nodes.append("circle")
+      .attr("r", 11).attr("fill", "#222")
+      .attr("stroke", "white").attr("stroke-width", 2);
+    nodes.append("text")
+      .attr("text-anchor", "middle").attr("dy", "0.35em")
+      .attr("fill", "white").attr("font-size", "11px")
+      .attr("font-weight", "bold")
+      .text(d => d.label);
   }}
 }})();
 </script>"""

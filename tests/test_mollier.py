@@ -817,6 +817,69 @@ class TestPlotMollierHx(unittest.TestCase):
         with self.assertRaises(ValueError):
             plot_mollier_hx(convention='nonsense')
 
+    # ---------------------------------------------------------------------
+    # Phase 4: process-chain visualization (states= kwarg)
+    # ---------------------------------------------------------------------
+
+    def test_states_renders_process_chain(self):
+        from pyedautils._mollier import heat, humidify_adiabatic
+        s0 = state(t=-5, phi=0.80, p=P_STD, volume_flow=1500)
+        s1, _ = heat(s0, t_out=21)
+        s2, _ = humidify_adiabatic(s1, phi_out=0.45)
+        html = plot_mollier_hx(states=[s0, s1, s2])
+        self.assertIn('process-chain', html)
+        self.assertIn('arrow-', html)
+        # statePoints JSON must contain three records
+        self.assertIn('statePoints', html)
+        self.assertNotIn('statePoints = null', html)
+
+    def test_states_with_labels(self):
+        from pyedautils._mollier import heat
+        s0 = state(t=10, phi=0.5, p=P_STD)
+        s1, _ = heat(s0, dt=10)
+        html = plot_mollier_hx(states=[s0, s1], labels=['Inlet', 'After heater'])
+        self.assertIn('Inlet', html)
+        self.assertIn('After heater', html)
+
+    def test_states_default_labels_are_numeric(self):
+        from pyedautils._mollier import heat
+        s0 = state(t=10, phi=0.5, p=P_STD)
+        s1, _ = heat(s0, dt=10)
+        html = plot_mollier_hx(states=[s0, s1])
+        # Default labels are "0" and "1" — those strings appear in the
+        # statePoints JSON.
+        self.assertIn('"label": "0"', html)
+        self.assertIn('"label": "1"', html)
+
+    def test_states_labels_length_mismatch_raises(self):
+        s0 = state(t=10, phi=0.5, p=P_STD)
+        with self.assertRaises(ValueError):
+            plot_mollier_hx(states=[s0], labels=['a', 'b'])
+
+    def test_states_none_means_no_chain(self):
+        html = plot_mollier_hx()
+        self.assertIn('statePoints = null', html)
+
+    def test_states_empty_list_means_no_chain(self):
+        html = plot_mollier_hx(states=[])
+        self.assertIn('statePoints = null', html)
+
+    def test_states_coexist_with_data(self):
+        import pandas as pd
+        from pyedautils._mollier import heat
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2023-06-01", periods=3, freq="h"),
+            "humidity": [50, 60, 55],
+            "temperature": [22, 24, 23],
+        })
+        s0 = state(t=22, phi=0.5, p=P_STD)
+        s1, _ = heat(s0, dt=5)
+        html = plot_mollier_hx(data=df, states=[s0, s1])
+        # Both visualizations active
+        self.assertIn('process-chain', html)
+        self.assertIn('dataRecords', html)
+        self.assertNotIn('dataRecords = null', html)
+
     def test_highlight_latest_default_with_data(self):
         df = pd.DataFrame({
             "timestamp": pd.date_range("2023-06-01", periods=5, freq="h"),
