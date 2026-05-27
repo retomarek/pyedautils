@@ -53,6 +53,16 @@ class TestSunPosition(unittest.TestCase):
         self.assertTrue((df["azimuth"] >= 0).all() and (df["azimuth"] <= 360).all())
         self.assertTrue(df["elevation"].between(-90, 90).all())
 
+    def test_list_input_uses_computed_index(self):
+        # A plain list has no index of its own -> the result is indexed by a
+        # UTC-naive DatetimeIndex built from the input values.
+        df = sun_position(["2025-06-21 06:00", "2025-06-21 12:00"], LAT, LON)
+        self.assertIsInstance(df, pd.DataFrame)
+        self.assertIsInstance(df.index, pd.DatetimeIndex)
+        self.assertEqual(len(df), 2)
+        # Midday sun is higher than morning sun.
+        self.assertGreater(df["elevation"].iloc[1], df["elevation"].iloc[0])
+
     def test_series_keeps_index(self):
         s = pd.Series(
             [datetime(2025, 6, 21, 6), datetime(2025, 6, 21, 12)],
