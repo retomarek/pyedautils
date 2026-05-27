@@ -342,8 +342,13 @@ def plot_mollier_hx(
                 idx_latest = df["timestamp"].values.argmax()
                 current_json = json.dumps(records[idx_latest])
 
-    # Process-chain points
+    # Process-chain points. Each record carries both a short integer ``number``
+    # (1-based, drawn inside the chart circle) and a free-form ``label``
+    # (shown in the legend). The legend is rendered only when the user
+    # supplied explicit labels — otherwise the labels would just repeat the
+    # numbers.
     states_json = "null"
+    state_legend_js = "false"
     if states is not None and len(states) > 0:
         if labels is not None and len(labels) != len(states):
             raise ValueError(
@@ -352,10 +357,12 @@ def plot_mollier_hx(
             )
         state_records = []
         for i, s in enumerate(states):
-            lab = labels[i] if labels is not None else str(i)
+            number = str(i + 1)
+            lab = labels[i] if labels is not None else number
             state_records.append({
                 "x": float(s.x),
                 "y": float(s.y),
+                "number": number,
                 "label": str(lab),
                 "t": round(float(s.t), 2),
                 "phi": round(float(s.phi) * 100, 2),
@@ -365,6 +372,7 @@ def plot_mollier_hx(
                 "t_dp": round(float(s.t_dp), 2),
             })
         states_json = json.dumps(state_records)
+        state_legend_js = "true" if labels is not None else "false"
 
     if comfort_zone is False:
         comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
@@ -409,6 +417,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let dataRecords = {data_json};
   let currentRecord = {current_json};
   let statePoints = {states_json};
+  let showStateLegend = {state_legend_js};
   let highlightColor = {highlight_color_js};
   let colorMap = {season_colors};
 
@@ -509,32 +518,6 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
           }});
     }}
 
-    let legendItems = [
-      {{label: "Komfortzone", color: "#9ACD32", type: "rect"}},
-      {{label: "Frühling", color: colorMap["Frühling"], type: "circle"}},
-      {{label: "Sommer", color: colorMap["Sommer"], type: "circle"}},
-      {{label: "Herbst", color: colorMap["Herbst"], type: "circle"}},
-      {{label: "Winter", color: colorMap["Winter"], type: "circle"}}
-    ];
-    let legend = svg.append("g")
-      .attr("transform", "translate(" + (margin.left + 10) + ","
-        + (margin.top + 10) + ")");
-    legend.append("rect").attr("x", -5).attr("y", -5)
-      .attr("width", 120).attr("height", legendItems.length * 20 + 10)
-      .attr("fill", "white").attr("opacity", 0.7);
-    legendItems.forEach((item, i) => {{
-      let g = legend.append("g")
-        .attr("transform", "translate(0," + (i * 20) + ")");
-      if (item.type === "rect")
-        g.append("rect").attr("width", 14).attr("height", 14)
-          .attr("fill", item.color).attr("opacity", 0.7);
-      else
-        g.append("circle").attr("cx", 7).attr("cy", 7).attr("r", 5)
-          .attr("fill", item.color).attr("opacity", 0.7);
-      g.append("text").attr("x", 20).attr("y", 11).text(item.label)
-        .style("font-family", "Tahoma, Geneva, sans-serif")
-        .style("font-size", "12px");
-    }});
   }}
 
   // Process chain: numbered state points joined by arrows.
@@ -577,7 +560,69 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       .attr("text-anchor", "middle").attr("dy", "0.35em")
       .attr("fill", "white").attr("font-size", "11px")
       .attr("font-weight", "bold")
-      .text(d => d.label);
+      .text(d => d.number);
+  }}
+
+  // ----- Combined legend (bottom-right) ----------------------------------
+  let legendItems = [];
+  if (statePoints && statePoints.length > 0 && showStateLegend) {{
+    for (let sp of statePoints) {{
+      legendItems.push({{type: "process", number: sp.number, label: sp.label}});
+    }}
+  }}
+  if (pathos && pathos.length > 0) {{
+    legendItems.push({{type: "rect", color: "#9ACD32", label: "Komfortzone"}});
+  }}
+  if (dataRecords && dataRecords.length > 0) {{
+    legendItems.push({{type: "circle", color: colorMap["Frühling"], label: "Frühling"}});
+    legendItems.push({{type: "circle", color: colorMap["Sommer"], label: "Sommer"}});
+    legendItems.push({{type: "circle", color: colorMap["Herbst"], label: "Herbst"}});
+    legendItems.push({{type: "circle", color: colorMap["Winter"], label: "Winter"}});
+  }}
+
+  if (legendItems.length > 0) {{
+    let rowH = 20;
+    let legendH = legendItems.length * rowH + 10;
+    let legendW = 150;
+    // Anchor bottom-right of the plot area. Sits on top of iso-lines in that
+    // corner with an opaque background; the rightmost enthalpy-axis labels
+    // remain visible because the legend stops 35 px short of the right edge.
+    let lx = margin.left + width - legendW - 35;
+    let ly = margin.top + height - legendH - 8;
+    let legendG = svg.append("g")
+      .attr("transform", "translate(" + lx + "," + ly + ")");
+    legendG.append("rect")
+      .attr("x", -6).attr("y", -6)
+      .attr("width", legendW + 12).attr("height", legendH + 6)
+      .attr("fill", "white").attr("stroke", "#bbb").attr("rx", 3);
+    legendItems.forEach((item, i) => {{
+      let g = legendG.append("g")
+        .attr("transform", "translate(0," + (i * rowH + 5) + ")");
+      if (item.type === "process") {{
+        g.append("circle")
+          .attr("cx", 10).attr("cy", 8).attr("r", 10)
+          .attr("fill", "#222").attr("stroke", "white").attr("stroke-width", 1.5);
+        g.append("text")
+          .attr("x", 10).attr("y", 8).attr("text-anchor", "middle").attr("dy", "0.35em")
+          .attr("fill", "white").attr("font-size", "10px").attr("font-weight", "bold")
+          .text(item.number);
+        g.append("text").attr("x", 26).attr("y", 12)
+          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
+          .text(item.label);
+      }} else if (item.type === "rect") {{
+        g.append("rect").attr("x", 2).attr("y", 1).attr("width", 14).attr("height", 14)
+          .attr("fill", item.color).attr("opacity", 0.7);
+        g.append("text").attr("x", 22).attr("y", 12)
+          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
+          .text(item.label);
+      }} else {{
+        g.append("circle").attr("cx", 9).attr("cy", 8).attr("r", 5)
+          .attr("fill", item.color).attr("opacity", 0.7);
+        g.append("text").attr("x", 22).attr("y", 12)
+          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
+          .text(item.label);
+      }}
+    }});
   }}
 }})();
 </script>"""

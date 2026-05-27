@@ -894,15 +894,33 @@ class TestPlotMollierHx(unittest.TestCase):
         self.assertIn('Inlet', html)
         self.assertIn('After heater', html)
 
-    def test_states_default_labels_are_numeric(self):
+    def test_states_default_labels_start_at_1(self):
         from pyedautils._mollier import heat
         s0 = state(t=10, phi=0.5, p=P_STD)
         s1, _ = heat(s0, dt=10)
         html = plot_mollier_hx(states=[s0, s1])
-        # Default labels are "0" and "1" — those strings appear in the
-        # statePoints JSON.
-        self.assertIn('"label": "0"', html)
-        self.assertIn('"label": "1"', html)
+        # Default labels match the chart circle numbers: "1" and "2".
+        self.assertIn('"number": "1"', html)
+        self.assertIn('"number": "2"', html)
+        self.assertNotIn('"number": "0"', html)
+
+    def test_states_circle_uses_number_not_label(self):
+        # The chart-circle text uses d.number; the legend uses d.label.
+        from pyedautils._mollier import heat
+        s0 = state(t=10, phi=0.5, p=P_STD)
+        s1, _ = heat(s0, dt=10)
+        html = plot_mollier_hx(states=[s0, s1], labels=['Inlet', 'Outlet'])
+        # State legend is enabled only when explicit labels are provided.
+        self.assertIn('showStateLegend = true', html)
+
+    def test_states_default_labels_skip_legend(self):
+        # Without explicit labels, the process legend is suppressed (labels
+        # would just duplicate the circle numbers).
+        from pyedautils._mollier import heat
+        s0 = state(t=10, phi=0.5, p=P_STD)
+        s1, _ = heat(s0, dt=10)
+        html = plot_mollier_hx(states=[s0, s1])
+        self.assertIn('showStateLegend = false', html)
 
     def test_states_labels_length_mismatch_raises(self):
         s0 = state(t=10, phi=0.5, p=P_STD)
