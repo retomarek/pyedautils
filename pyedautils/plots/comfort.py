@@ -593,11 +593,11 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     let rowH = 20;
     let legendH = legendItems.length * rowH + 10;
     let legendW = 150;
-    // Anchor bottom-right of the plot area. Sits on top of iso-lines in that
-    // corner with an opaque background; the rightmost enthalpy-axis labels
-    // remain visible because the legend stops 35 px short of the right edge.
-    let lx = margin.left + width - legendW - 35;
-    let ly = margin.top + height - legendH - 8;
+    // Anchor bottom-right of the plot area, but keep enough margin from the
+    // right and bottom edges so that the enthalpy-axis labels (which sit at
+    // plot-local x = width-20 and y = height-20) stay visible.
+    let lx = margin.left + width - legendW - 50;
+    let ly = margin.top + height - legendH - 35;
     let legendG = svg.append("g")
       .attr("transform", "translate(" + lx + "," + ly + ")");
     legendG.append("rect")
