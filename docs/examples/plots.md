@@ -13,4 +13,6 @@ Interactive plot examples:
 - {doc}`density_seasons` — Density plot of a value by season (Plotly)
 - {doc}`seasonal` — Seasonal plots: overlapping, miniplots, before/after, polar (Plotly)
 - {doc}`sum_frequency` — Sum frequency / duration curve plot (Plotly)
-- {doc}`comfort` — Comfort plots: SIA 180 thermal comfort, temperature vs humidity (Plotly)
+- {doc}`comfort` — Comfort plots: SIA 180 thermal comfort, comfort donuts, overheating bar, temperature vs humidity (Plotly)
+- {doc}`gradients` — Heating/cooling gradient boxplots by season (Plotly)
+- {doc}`solar_influence` — Dual-axis room temperature vs global radiation (Plotly)

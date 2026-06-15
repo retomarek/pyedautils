@@ -5,6 +5,16 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pandas as pd
 import plotly.graph_objects as go
 
+from pyedautils.comfort import (
+    ADAPTIVE_MAX_T_OA_HI,
+    ADAPTIVE_MAX_T_OA_LO,
+    ADAPTIVE_MIN_T_OA_HI,
+    ADAPTIVE_MIN_T_OA_LO,
+    MINERGIE_OVERHEATING_LIMIT_H,
+    SIA180_RESIDENTIAL_OVERHEATING_LIMIT_H,
+    sia180_max_temp,
+    sia180_min_temp,
+)
 from pyedautils.plots._constants import DEFAULT_SEASON_COLORS, _SEASON_LABELS_DE
 
 
@@ -69,18 +79,23 @@ def plot_comfort_sia180(
 
     fig = go.Figure()
 
-    # SIA 180 boundaries
-    # Lower limit (heating setpoint)
+    # SIA 180 boundaries (adaptive curves from pyedautils.comfort —
+    # single source of truth, see sia180_min_temp / sia180_max_temp).
+    # Lower limit (heating setpoint): constant below 19 °C, linear to
+    # 23.5 °C, constant above.
+    lower_x = [min_x, ADAPTIVE_MIN_T_OA_LO, ADAPTIVE_MIN_T_OA_HI, max_x]
     fig.add_trace(go.Scatter(
-        x=[min_x, 19, 23.5, max_x],
-        y=[20.5, 20.5, 22, 22],
+        x=lower_x,
+        y=sia180_min_temp(lower_x),
         mode="lines", name="Lower limit SIA 180",
         line=dict(color="#440154", width=2),
     ))
-    # Upper limit active cooling
+    # Upper limit active cooling: constant below 12 °C, linear to
+    # 17.5 °C, constant above.
+    upper_x = [min_x, ADAPTIVE_MAX_T_OA_LO, ADAPTIVE_MAX_T_OA_HI, max_x]
     fig.add_trace(go.Scatter(
-        x=[min_x, 12, 17.5, max_x],
-        y=[24.5, 24.5, 26.5, 26.5],
+        x=upper_x,
+        y=sia180_max_temp(upper_x),
         mode="lines", name="Upper limit active cooling",
         line=dict(color="#1E9B8A", width=2),
     ))
@@ -635,3 +650,147 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   }}
 }})();
 </script>"""
+
+
+def plot_comfort_donuts(
+    data: pd.DataFrame,
+    temp_range: Tuple[float, float] = (20.0, 26.0),
+    hum_range: Tuple[float, float] = (30.0, 65.0),
+    title: Optional[str] = None,
+    temp_colors: Tuple[str, str, str] = ("#3498DB", "#2ECC71", "#E74C3C"),
+    hum_colors: Tuple[str, str, str] = ("#F39C12", "#2ECC71", "#3498DB"),
+    labels_de: bool = False,
+) -> go.Figure:
+    """Two donut charts showing time spent below / within / above comfort.
+
+    The left donut splits temperature into *too cold* / *comfort* / *too
+    warm*, the right donut splits humidity into *too dry* / *comfort* /
+    *too humid*, based on the given comfort ranges.
+
+    Args:
+        data: DataFrame with columns ``temperature`` [°C] and
+            ``humidity`` [%rH] (extra columns are ignored).
+        temp_range: ``(min, max)`` comfort temperature band [°C].
+        hum_range: ``(min, max)`` comfort humidity band [%rH].
+        title: Overall figure title. Default *None*.
+        temp_colors: Colors for (cold, comfort, warm).
+        hum_colors: Colors for (dry, comfort, humid).
+        labels_de: Use German slice labels. Default *False* (English).
+
+    Returns:
+        go.Figure: Plotly figure with two donut subplots.
+    """
+    from plotly.subplots import make_subplots
+
+    df = data.copy()
+    t = pd.to_numeric(df["temperature"], errors="coerce").dropna()
+    h = pd.to_numeric(df["humidity"], errors="coerce").dropna()
+
+    t_lo, t_hi = temp_range
+    h_lo, h_hi = hum_range
+    temp_vals = [int((t < t_lo).sum()), int(((t >= t_lo) & (t <= t_hi)).sum()),
+                 int((t > t_hi).sum())]
+    hum_vals = [int((h < h_lo).sum()), int(((h >= h_lo) & (h <= h_hi)).sum()),
+                int((h > h_hi).sum())]
+
+    if labels_de:
+        temp_labels = [f"< {t_lo:g} °C", "Komfort", f"> {t_hi:g} °C"]
+        hum_labels = ["Zu trocken", "Komfort", "Zu feucht"]
+        sub_titles = ("Temperaturverteilung", "Feuchtigkeitsverteilung")
+    else:
+        temp_labels = [f"< {t_lo:g} °C", "Comfort", f"> {t_hi:g} °C"]
+        hum_labels = ["Too dry", "Comfort", "Too humid"]
+        sub_titles = ("Temperature distribution", "Humidity distribution")
+
+    fig = make_subplots(
+        rows=1, cols=2, specs=[[{"type": "domain"}, {"type": "domain"}]],
+        subplot_titles=sub_titles,
+    )
+    fig.add_trace(go.Pie(
+        labels=temp_labels, values=temp_vals, hole=0.5,
+        marker_colors=list(temp_colors), name="Temperature",
+    ), row=1, col=1)
+    fig.add_trace(go.Pie(
+        labels=hum_labels, values=hum_vals, hole=0.5,
+        marker_colors=list(hum_colors), name="Humidity",
+    ), row=1, col=2)
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>" if title else None,
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+    )
+    return fig
+
+
+def plot_overheating_bar(
+    data: pd.DataFrame,
+    label_col: str = "label",
+    value_col: str = "hours",
+    limits: Tuple[float, float] = (
+        MINERGIE_OVERHEATING_LIMIT_H,
+        SIA180_RESIDENTIAL_OVERHEATING_LIMIT_H,
+    ),
+    limit_labels: Tuple[str, str] = ("Minergie (100 h)", "SIA 180 (400 h)"),
+    title: str = "Overheating hours per room",
+    xlab: str = "Overheating hours [h]",
+) -> go.Figure:
+    """Horizontal bar chart of overheating hours per room with limit lines.
+
+    Bars are sorted ascending (worst room on top) and colored green /
+    orange / red depending on whether they fall below the lower limit,
+    between the limits, or above the upper limit. Two vertical reference
+    lines mark the limits (e.g. Minergie 100 h and SIA 180 400 h).
+
+    Args:
+        data: DataFrame with one row per room.
+        label_col: Column with the room label. Default ``"label"``.
+        value_col: Column with the overheating hours. Default ``"hours"``.
+        limits: ``(lower, upper)`` reference limits [h].
+        limit_labels: Annotations for the two reference lines.
+        title: Plot title.
+        xlab: X-axis label.
+
+    Returns:
+        go.Figure: Plotly horizontal bar figure.
+    """
+    df = data[[label_col, value_col]].copy()
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce").fillna(0.0)
+    df = df.sort_values(value_col, ascending=True).reset_index(drop=True)
+
+    lo, hi = limits
+
+    def _color(v: float) -> str:
+        if v > hi:
+            return "#ef4444"   # red
+        if v > lo:
+            return "#f59e0b"   # orange
+        return "#22c55e"       # green
+
+    colors = [_color(v) for v in df[value_col]]
+
+    fig = go.Figure(go.Bar(
+        x=df[value_col], y=df[label_col],
+        orientation="h",
+        marker_color=colors,
+        text=[f"{v:.0f} h" for v in df[value_col]],
+        textposition="outside",
+        hovertemplate="%{y}: %{x:.0f} h<extra></extra>",
+    ))
+
+    for lim, lab, col in zip(limits, limit_labels, ("#16a34a", "#dc2626")):
+        fig.add_vline(
+            x=lim, line=dict(color=col, width=1.5, dash="dash"),
+            annotation_text=lab, annotation_position="top",
+        )
+
+    fig.update_layout(
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        xaxis_title=xlab,
+        height=max(300, 40 * len(df) + 120),
+        showlegend=False,
+        margin=dict(l=10, r=40, t=60, b=10),
+    )
+    return fig

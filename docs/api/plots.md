@@ -57,3 +57,21 @@ See the {doc}`../examples/index` section for interactive usage examples.
    :undoc-members:
    :show-inheritance:
 ```
+
+## Gradients
+
+```{eval-rst}
+.. automodule:: pyedautils.plots.gradients
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
+## Solar Influence
+
+```{eval-rst}
+.. automodule:: pyedautils.plots.solar
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```

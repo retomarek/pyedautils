@@ -8,12 +8,16 @@ chapters:
     sections:
       - file: api/data_io
       - file: api/data_quality
+      - file: api/comfort
       - file: api/geopy
       - file: api/plots
       - file: api/data_prep
         sections:
           - file: api/season
           - file: api/sun
+          - file: api/gradients
+          - file: api/solar_influence
+          - file: api/reshape
       - file: api/weather
         sections:
           - file: api/meteo_swiss
@@ -36,6 +40,8 @@ chapters:
           - file: examples/seasonal
           - file: examples/sum_frequency
           - file: examples/comfort
+          - file: examples/gradients
+          - file: examples/solar_influence
       - file: examples/data_prep
         sections:
           - file: examples/season

@@ -9,6 +9,10 @@ A pip-installable library of compact utility functions for analyzing and visuali
 ## Features
 
 - **Plotting** — Plotly-based daily profile visualizations with confidence bands and decomposed weekly patterns
+- **Data quality** — Gap, stuck-value and range-outlier detection, interval inference, ok/warning/critical flags
+- **Thermal comfort** — SIA 180:2014 adaptive comfort curves, overheating hours/KPIs, comfort donuts, overheating bar
+- **Gradients** — Heating/cooling gradients (K/h) by direction and season, with grouped boxplots
+- **Solar influence** — Detect direct solar influence on a sensor, with a dual-axis plot
 - **Data I/O** — Save/load DataFrames in CSV, pickle, compressed pickle, and JSON formats
 - **Geocoding** — Address geocoding, WGS84/LV95 conversion, altitude lookup, Swiss postal codes, Haversine distance
 - **Season detection** — Astronomical or meteorological season classification for any date

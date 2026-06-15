@@ -1,7 +1,8 @@
 """Functions for detecting and visualizing gaps in time series data."""
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -282,3 +283,302 @@ def calc_outliers(
         "count": len(outlier_df),
         "percentage": round(len(outlier_df) / len(df) * 100, 2) if len(df) > 0 else 0.0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Interval / gap / stuck / range-outlier detection (timestamp-based)
+#
+# These complement the rolling-median helpers above. They accept either a
+# DataFrame with a DatetimeIndex, a DataFrame with a ``timestamp`` column,
+# or a Series with a DatetimeIndex, and operate on a single sensor series.
+# ---------------------------------------------------------------------------
+def _ts_value(data: Union[pd.Series, pd.DataFrame],
+              column: Optional[str] = None):
+    """Return ``(timestamps, values)`` from flexible single-series input.
+
+    Accepts a Series (DatetimeIndex), a DataFrame with a ``timestamp``
+    column, or a DataFrame with a DatetimeIndex. ``column`` selects the
+    value column (first column by default).
+    """
+    if isinstance(data, pd.Series):
+        ts = pd.Series(pd.to_datetime(data.index), index=data.index)
+        return ts.reset_index(drop=True), data.reset_index(drop=True)
+    df = data
+    if "timestamp" in df.columns:
+        ts = pd.to_datetime(df["timestamp"]).reset_index(drop=True)
+    else:
+        ts = pd.Series(pd.to_datetime(df.index)).reset_index(drop=True)
+    if column is None:
+        value_cols = [c for c in df.columns if c != "timestamp"]
+        column = value_cols[0]
+    values = df[column].reset_index(drop=True)
+    return ts, values
+
+
+def infer_interval(timestamps: pd.Series) -> pd.Timedelta:
+    """Estimate a sensor's sampling interval from the median time difference.
+
+    Args:
+        timestamps: Series (or DatetimeIndex) of timestamps.
+
+    Returns:
+        pd.Timedelta: Median positive interval; falls back to 10 minutes
+        if there are fewer than two usable timestamps.
+    """
+    sorted_ts = pd.Series(pd.to_datetime(timestamps)).dropna().sort_values()
+    if len(sorted_ts) < 2:
+        return pd.Timedelta(minutes=10)
+    diffs = sorted_ts.diff().dropna()
+    positive = diffs[diffs > pd.Timedelta(0)]
+    if positive.empty:
+        return pd.Timedelta(minutes=10)
+    return positive.median()
+
+
+def detect_gaps(
+    data: Union[pd.Series, pd.DataFrame],
+    expected_interval: Optional[pd.Timedelta] = None,
+    factor: float = 2.0,
+    min_floor: pd.Timedelta = pd.Timedelta(minutes=30),
+) -> pd.DataFrame:
+    """Find gaps (interruptions) in a single sensor time series.
+
+    A gap is an interval larger than ``factor × expected_interval`` but at
+    least *min_floor*. Unlike :func:`calc_gap_duration`/
+    :func:`fill_missing_values_with_na` (rolling-median based, NaN-filling),
+    this returns an explicit table of gap intervals.
+
+    Args:
+        data: Series (DatetimeIndex), or DataFrame with a ``timestamp``
+            column or DatetimeIndex.
+        expected_interval: Expected sampling interval. Inferred via
+            :func:`infer_interval` when *None*.
+        factor: Multiplier on the expected interval. Default 2.0.
+        min_floor: Minimum gap length to report. Default 30 minutes.
+
+    Returns:
+        pd.DataFrame: Columns ``[gap_start, gap_end, gap_duration_h]``.
+    """
+    ts, _ = _ts_value(data)
+    ts = ts.dropna().sort_values().reset_index(drop=True)
+    if expected_interval is None:
+        expected_interval = infer_interval(ts)
+    min_gap = max(expected_interval * factor, min_floor)
+    if len(ts) < 2:
+        return pd.DataFrame(columns=["gap_start", "gap_end", "gap_duration_h"])
+
+    diffs = ts.diff()
+    gap_mask = diffs > min_gap
+    gap_starts = ts[gap_mask.shift(-1, fill_value=False)].values
+    gap_ends = ts[gap_mask].values
+
+    records = []
+    for start, end in zip(gap_starts, gap_ends):
+        duration_h = (end - start) / pd.Timedelta(hours=1)
+        records.append({"gap_start": start, "gap_end": end,
+                        "gap_duration_h": round(duration_h, 2)})
+    return pd.DataFrame(records, columns=["gap_start", "gap_end", "gap_duration_h"])
+
+
+def detect_stuck(
+    data: Union[pd.Series, pd.DataFrame],
+    min_repeats: int = 20,
+    min_duration_h: float = 6.0,
+    column: Optional[str] = None,
+) -> pd.DataFrame:
+    """Find periods where a sensor repeatedly reports the same value.
+
+    Uses run-length encoding: consecutive identical values form a run, and
+    runs that are both long enough (``n_repeats >= min_repeats``) and last
+    long enough (``stuck_duration_h >= min_duration_h``) are flagged.
+
+    Args:
+        data: Series (DatetimeIndex), or DataFrame with a ``timestamp``
+            column / DatetimeIndex plus a value column.
+        min_repeats: Minimum number of identical consecutive samples.
+            Default 20.
+        min_duration_h: Minimum duration of the run in hours. Default 6.0.
+        column: Value column name (DataFrame input only); first non-
+            timestamp column by default.
+
+    Returns:
+        pd.DataFrame: Columns ``[stuck_start, stuck_end, stuck_value,
+        stuck_duration_h, n_repeats]``.
+    """
+    out_cols = ["stuck_start", "stuck_end", "stuck_value",
+                "stuck_duration_h", "n_repeats"]
+    ts, values = _ts_value(data, column=column)
+    work = pd.DataFrame({"timestamp": ts, "value": values}).dropna()
+    work = work.sort_values("timestamp").reset_index(drop=True)
+    if work.empty:
+        return pd.DataFrame(columns=out_cols)
+
+    work["_grp"] = (work["value"] != work["value"].shift()).cumsum()
+    runs = (
+        work.groupby("_grp")
+        .agg(
+            stuck_start=("timestamp", "first"),
+            stuck_end=("timestamp", "last"),
+            stuck_value=("value", "first"),
+            n_repeats=("value", "count"),
+        )
+        .reset_index(drop=True)
+    )
+    runs["stuck_duration_h"] = (runs["stuck_end"] - runs["stuck_start"]) / pd.Timedelta(hours=1)
+    stuck = runs[
+        (runs["n_repeats"] >= min_repeats) & (runs["stuck_duration_h"] >= min_duration_h)
+    ].copy()
+    stuck["stuck_duration_h"] = stuck["stuck_duration_h"].round(2)
+    return stuck[out_cols].reset_index(drop=True)
+
+
+def detect_outliers(
+    data: Union[pd.Series, pd.DataFrame],
+    lo: float,
+    hi: float,
+    column: Optional[str] = None,
+) -> pd.DataFrame:
+    """Find values outside a plausibility range ``[lo, hi]``.
+
+    Complements the IQR-based :func:`calc_outliers` with a fixed,
+    physically motivated range (e.g. relative humidity 0–100 %).
+
+    Args:
+        data: Series (DatetimeIndex), or DataFrame with a ``timestamp``
+            column / DatetimeIndex plus a value column.
+        lo: Lower plausibility bound (inclusive).
+        hi: Upper plausibility bound (inclusive).
+        column: Value column name (DataFrame input only).
+
+    Returns:
+        pd.DataFrame: Columns ``[timestamp, value, reason]`` sorted by
+        timestamp; empty if there are no out-of-range values.
+    """
+    ts, values = _ts_value(data, column=column)
+    work = pd.DataFrame({"timestamp": ts, "value": values}).dropna()
+    below = work[work["value"] < lo].copy()
+    below["reason"] = f"below {lo}"
+    above = work[work["value"] > hi].copy()
+    above["reason"] = f"above {hi}"
+    result = pd.concat([below, above], ignore_index=True)
+    if result.empty:
+        return pd.DataFrame(columns=["timestamp", "value", "reason"])
+    return result.sort_values("timestamp").reset_index(drop=True)[
+        ["timestamp", "value", "reason"]]
+
+
+#: Default thresholds for :func:`classify_quality_flags`.
+DEFAULT_QUALITY_THRESHOLDS: Dict[str, float] = {
+    "cov_warn":   90.0,  "cov_crit":   70.0,  # coverage [%], lower bound
+    "gap_warn":   24.0,  "gap_crit":  168.0,  # longest gap [h], upper bound
+    "out_warn":    1.0,  "out_crit":    5.0,  # outliers [%], upper bound
+    "stuck_warn":  1.0,  "stuck_crit":  5.0,  # stuck periods [count], upper bound
+}
+
+
+def classify_quality_flags(
+    summary: pd.DataFrame,
+    thresholds: Optional[Dict[str, float]] = None,
+) -> pd.Series:
+    """Classify each row of a quality summary as ok / warning / critical.
+
+    A row is *critical* if any metric crosses its critical threshold, else
+    *warning* if any crosses its warning threshold, else *ok*.
+
+    Args:
+        summary: DataFrame with (any subset of) columns ``coverage_pct``,
+            ``longest_gap_h``, ``outlier_pct``, ``n_stuck_periods``.
+        thresholds: Overrides merged onto
+            :data:`DEFAULT_QUALITY_THRESHOLDS`.
+
+    Returns:
+        pd.Series: ``"ok"`` / ``"warning"`` / ``"critical"`` per row,
+        named ``quality_flag``.
+    """
+    t = {**DEFAULT_QUALITY_THRESHOLDS, **(thresholds or {})}
+
+    def _col(name: str, default: float) -> pd.Series:
+        # Missing columns default to a neutral value so they never trigger a flag.
+        if name not in summary.columns:
+            return pd.Series(default, index=summary.index)
+        return pd.to_numeric(summary[name], errors="coerce").fillna(default)
+
+    cov = _col("coverage_pct", 100.0)
+    gap = _col("longest_gap_h", 0.0)
+    out = _col("outlier_pct", 0.0)
+    stuck = _col("n_stuck_periods", 0.0)
+    is_crit = (
+        (cov < t["cov_crit"]) | (gap >= t["gap_crit"]) |
+        (out >= t["out_crit"]) | (stuck >= t["stuck_crit"])
+    )
+    is_warn = (
+        (cov < t["cov_warn"]) | (gap >= t["gap_warn"]) |
+        (out >= t["out_warn"]) | (stuck >= t["stuck_warn"])
+    )
+    return pd.Series(
+        np.where(is_crit, "critical", np.where(is_warn, "warning", "ok")),
+        index=summary.index,
+        name="quality_flag",
+    )
+
+
+def plot_data_quality(
+    data: Union[pd.Series, pd.DataFrame],
+    expected_interval: Optional[pd.Timedelta] = None,
+    column: Optional[str] = None,
+    title: str = "Data Quality",
+    ylab: str = "Value",
+    line_color: str = "#0D7377",
+    gap_color: str = "rgba(239,68,68,0.25)",
+    height: int = 300,
+) -> go.Figure:
+    """Plot a sensor series with detected gaps shaded.
+
+    Draws the time series as points (WebGL) with red background rectangles
+    over the gaps found by :func:`detect_gaps`.
+
+    Args:
+        data: Series (DatetimeIndex), or DataFrame with a ``timestamp``
+            column / DatetimeIndex plus a value column.
+        expected_interval: Passed to :func:`detect_gaps`; inferred if
+            *None*.
+        column: Value column name (DataFrame input only).
+        title: Plot title.
+        ylab: Y-axis label.
+        line_color: Marker/line color for the data trace.
+        gap_color: Fill color for gap rectangles.
+        height: Figure height in pixels. Default 300.
+
+    Returns:
+        go.Figure
+    """
+    ts, values = _ts_value(data, column=column)
+    chart = pd.DataFrame({"timestamp": ts, "value": values}).sort_values("timestamp")
+    gaps = detect_gaps(data, expected_interval=expected_interval)
+
+    gap_shapes = [
+        {
+            "type": "rect", "xref": "x", "yref": "paper",
+            "x0": g["gap_start"], "x1": g["gap_end"], "y0": 0, "y1": 1,
+            "fillcolor": gap_color, "line": {"width": 0}, "layer": "below",
+        }
+        for _, g in gaps.iterrows()
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(
+        x=chart["timestamp"], y=chart["value"],
+        mode="markers", marker=dict(color=line_color, size=3),
+        name="Value",
+        hovertemplate="%{x}<br>%{y:.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        shapes=gap_shapes,
+        title_text=f"<b>{title}</b>",
+        title_font=dict(size=20), title_x=0.5,
+        template="plotly_white",
+        height=height,
+        yaxis_title=ylab,
+        margin=dict(l=10, r=10, t=40, b=10),
+    )
+    return fig
