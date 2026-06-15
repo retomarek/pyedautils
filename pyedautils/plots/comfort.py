@@ -652,20 +652,65 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 </script>"""
 
 
+# Default comfort-donut palette — vivid, semantic (matches the report).
+_DONUT_TEMP_COLORS = ("#3498DB", "#2ECC71", "#E74C3C")  # cold / in range / warm
+_DONUT_HUM_COLORS = ("#F39C12", "#2ECC71", "#3498DB")   # dry / in range / humid
+_DONUT_FONT = "Inter, 'Segoe UI', Helvetica, Arial, sans-serif"
+_DONUT_MUTED = "#8A94A6"
+
+
+def _donut_pct_text(vals, min_pct: float = 6.0):
+    """In-wedge percent labels, suppressed for slices below *min_pct*."""
+    total = sum(vals)
+    if total <= 0:
+        return ["" for _ in vals]
+    return [f"{v / total * 100:.0f}%" if (v / total * 100) >= min_pct else ""
+            for v in vals]
+
+
+def _bullet_legend(names, vals, colors, count_label, cx, y_top, total):
+    """Build a vertical bullet-point legend as a single centred annotation.
+
+    The three entries are stacked as ``<br>`` lines inside one annotation:
+    left-justified rows (so the bullets line up) within a block that is
+    centred under the donut at column centre *cx*. Using one annotation
+    keeps the line spacing tight (default line height).
+    """
+    lines = []
+    for name, val, col in zip(names, vals, colors):
+        pct = f"{val / total * 100:.0f}%" if total else "0%"
+        lines.append(
+            f"<span style='color:{col}'>●</span>  "
+            f"{name} — <b>{val}</b> {count_label} "
+            f"<span style='color:{_DONUT_MUTED}'>({pct})</span>"
+        )
+    return [dict(
+        text="<br>".join(lines),
+        x=cx, y=y_top, xref="paper", yref="paper", showarrow=False,
+        xanchor="center", yanchor="top", align="left",
+        font=dict(size=12, family=_DONUT_FONT, color="#3A4150"),
+    )]
+
+
 def plot_comfort_donuts(
     data: pd.DataFrame,
     temp_range: Tuple[float, float] = (20.0, 26.0),
     hum_range: Tuple[float, float] = (30.0, 65.0),
     title: Optional[str] = None,
-    temp_colors: Tuple[str, str, str] = ("#3498DB", "#2ECC71", "#E74C3C"),
-    hum_colors: Tuple[str, str, str] = ("#F39C12", "#2ECC71", "#3498DB"),
-    labels_de: bool = False,
+    temp_colors: Tuple[str, str, str] = _DONUT_TEMP_COLORS,
+    hum_colors: Tuple[str, str, str] = _DONUT_HUM_COLORS,
+    count_label: str = "days",
+    show_center_stats: bool = True,
 ) -> go.Figure:
     """Two donut charts showing time spent below / within / above comfort.
 
-    The left donut splits temperature into *too cold* / *comfort* / *too
-    warm*, the right donut splits humidity into *too dry* / *comfort* /
-    *too humid*, based on the given comfort ranges.
+    The left donut splits temperature into *too cold* / *in range* / *too
+    warm*, the right donut splits humidity into *too dry* / *in range* /
+    *too humid*. Each slice shows its share inside the ring; the centre
+    shows the average with the min–max range; and **each donut has its own
+    vertical bullet-point legend** listing the slice counts and percentages
+    (e.g. number of days when the input is daily data). Hover tooltips show
+    the count and the percentage.
 
     Args:
         data: DataFrame with columns ``temperature`` [°C] and
@@ -673,15 +718,17 @@ def plot_comfort_donuts(
         temp_range: ``(min, max)`` comfort temperature band [°C].
         hum_range: ``(min, max)`` comfort humidity band [%rH].
         title: Overall figure title. Default *None*.
-        temp_colors: Colors for (cold, comfort, warm).
-        hum_colors: Colors for (dry, comfort, humid).
-        labels_de: Use German slice labels. Default *False* (English).
+        temp_colors: Colors for (cold, in range, warm).
+        hum_colors: Colors for (dry, in range, humid).
+        count_label: Unit word for the per-slice counts, used in the
+            legend and tooltips (e.g. ``"days"`` -> ``"In range — 42 days"``).
+        show_center_stats: Draw the average and min–max range in the centre
+            of each donut. Default *True*.
 
     Returns:
-        go.Figure: Plotly figure with two donut subplots.
+        go.Figure: Plotly figure with two donut traces and a vertical
+        bullet-point legend under each.
     """
-    from plotly.subplots import make_subplots
-
     df = data.copy()
     t = pd.to_numeric(df["temperature"], errors="coerce").dropna()
     h = pd.to_numeric(df["humidity"], errors="coerce").dropna()
@@ -693,32 +740,83 @@ def plot_comfort_donuts(
     hum_vals = [int((h < h_lo).sum()), int(((h >= h_lo) & (h <= h_hi)).sum()),
                 int((h > h_hi).sum())]
 
-    if labels_de:
-        temp_labels = [f"< {t_lo:g} °C", "Komfort", f"> {t_hi:g} °C"]
-        hum_labels = ["Zu trocken", "Komfort", "Zu feucht"]
-        sub_titles = ("Temperaturverteilung", "Feuchtigkeitsverteilung")
-    else:
-        temp_labels = [f"< {t_lo:g} °C", "Comfort", f"> {t_hi:g} °C"]
-        hum_labels = ["Too dry", "Comfort", "Too humid"]
-        sub_titles = ("Temperature distribution", "Humidity distribution")
+    temp_names = ["Too cold", "In range", "Too warm"]
+    hum_names = ["Too dry", "In range", "Too humid"]
+    sub_titles = ("Temperature", "Humidity")
+    hover = ("<b>%{customdata}</b><br>%{value} " + count_label
+             + " · %{percent}<extra></extra>")
 
-    fig = make_subplots(
-        rows=1, cols=2, specs=[[{"type": "domain"}, {"type": "domain"}]],
-        subplot_titles=sub_titles,
+    # Symmetric side-by-side domains; ring centres at x = 0.24 / 0.76.
+    cx_l, cx_r, cy = 0.24, 0.76, 0.62
+    left_dom = dict(x=[0.0, 0.48], y=[0.36, 0.90])
+    right_dom = dict(x=[0.52, 1.0], y=[0.36, 0.90])
+
+    common = dict(
+        hole=0.64, sort=False, direction="clockwise", rotation=0,
+        textinfo="text", textposition="inside",
+        insidetextfont=dict(color="white", size=13, family=_DONUT_FONT),
+        marker=dict(line=dict(color="white", width=2)),
+        hovertemplate=hover, showlegend=False,
     )
+    fig = go.Figure()
     fig.add_trace(go.Pie(
-        labels=temp_labels, values=temp_vals, hole=0.5,
-        marker_colors=list(temp_colors), name="Temperature",
-    ), row=1, col=1)
+        labels=temp_names, values=temp_vals, customdata=temp_names,
+        marker_colors=list(temp_colors), domain=left_dom,
+        text=_donut_pct_text(temp_vals), **common,
+    ))
     fig.add_trace(go.Pie(
-        labels=hum_labels, values=hum_vals, hole=0.5,
-        marker_colors=list(hum_colors), name="Humidity",
-    ), row=1, col=2)
+        labels=hum_names, values=hum_vals, customdata=hum_names,
+        marker_colors=list(hum_colors), domain=right_dom,
+        text=_donut_pct_text(hum_vals), **common,
+    ))
+
+    def _mean_text(series, unit, fmt):
+        return "—" if series.empty else f"{series.mean():{fmt}} {unit}"
+
+    def _range_text(series, unit, fmt):
+        if series.empty:
+            return ""
+        return f"{series.min():{fmt}} – {series.max():{fmt}} {unit}"
+
+    # Section titles above each ring.
+    annotations = [
+        dict(text=sub_titles[0], x=cx_l, y=0.97, font=dict(size=14, family=_DONUT_FONT)),
+        dict(text=sub_titles[1], x=cx_r, y=0.97, font=dict(size=14, family=_DONUT_FONT)),
+    ]
+    for a in annotations:
+        a.update(xref="paper", yref="paper", showarrow=False,
+                 xanchor="center", yanchor="middle")
+
+    if show_center_stats:
+        center = [
+            dict(text=f"<b>{_mean_text(t, '°C', '.1f')}</b>", x=cx_l, y=cy + 0.03,
+                 font=dict(size=18, family=_DONUT_FONT, color="#2C3038")),
+            dict(text=_range_text(t, "°C", ".1f"), x=cx_l, y=cy - 0.05,
+                 font=dict(size=11, family=_DONUT_FONT, color=_DONUT_MUTED)),
+            dict(text=f"<b>{_mean_text(h, '%', '.0f')}</b>", x=cx_r, y=cy + 0.03,
+                 font=dict(size=18, family=_DONUT_FONT, color="#2C3038")),
+            dict(text=_range_text(h, "%", ".0f"), x=cx_r, y=cy - 0.05,
+                 font=dict(size=11, family=_DONUT_FONT, color=_DONUT_MUTED)),
+        ]
+        for a in center:
+            a.update(xref="paper", yref="paper", showarrow=False,
+                     xanchor="center", yanchor="middle", align="center")
+        annotations += center
+
+    # Vertical bullet-point legend (centred) under each donut.
+    annotations += _bullet_legend(temp_names, temp_vals, temp_colors,
+                                  count_label, cx_l, 0.26, sum(temp_vals))
+    annotations += _bullet_legend(hum_names, hum_vals, hum_colors,
+                                  count_label, cx_r, 0.26, sum(hum_vals))
 
     fig.update_layout(
         title_text=f"<b>{title}</b>" if title else None,
-        title_font=dict(size=20), title_x=0.5,
+        title_font=dict(size=20, family=_DONUT_FONT), title_x=0.5,
         template="plotly_white",
+        font=dict(family=_DONUT_FONT),
+        annotations=annotations,
+        showlegend=False,
+        margin=dict(l=20, r=20, t=60 if title else 40, b=20),
     )
     return fig
 

@@ -136,15 +136,58 @@ class TestComfortPlots(unittest.TestCase):
                           "humidity": [20, 50, 70, 45]})
         fig = plot_comfort_donuts(d)
         self.assertEqual(len(fig.data), 2)
-        # temperature donut: 1 cold, 2 comfort, 1 warm
+        # temperature donut: 1 cold, 2 in range, 1 warm
         self.assertEqual(list(fig.data[0].values), [1, 2, 1])
 
-    def test_donuts_german_labels(self):
-        d = pd.DataFrame({"temperature": [18, 22, 28],
-                          "humidity": [20, 50, 70]})
-        fig = plot_comfort_donuts(d, labels_de=True)
-        self.assertIn("Komfort", fig.data[0].labels)
-        self.assertIn("Zu trocken", fig.data[1].labels)
+    def test_donuts_bullet_legend(self):
+        d = pd.DataFrame({"temperature": [18, 22, 28], "humidity": [20, 50, 70]})
+        fig = plot_comfort_donuts(d, count_label="days")
+        # native legend is off; legend is rendered as bullet annotations
+        self.assertFalse(fig.layout.showlegend)
+        bullets = [a for a in fig.layout.annotations if "●" in a.text]
+        # one centred multi-line annotation per donut, each with 3 bullets
+        self.assertEqual(len(bullets), 2)
+        for a in bullets:
+            self.assertEqual(a.text.count("●"), 3)
+            self.assertEqual(a.text.count("<br>"), 2)   # 3 stacked lines
+            self.assertEqual(a.xanchor, "center")        # centred block
+            self.assertEqual(a.align, "left")            # bullets aligned
+            self.assertIn("days", a.text)
+        self.assertTrue(any("In range" in a.text for a in bullets))
+
+    def test_donuts_english_labels(self):
+        d = pd.DataFrame({"temperature": [18, 22, 28], "humidity": [20, 50, 70]})
+        fig = plot_comfort_donuts(d)
+        self.assertEqual(list(fig.data[0].labels), ["Too cold", "In range", "Too warm"])
+        self.assertEqual(list(fig.data[1].labels), ["Too dry", "In range", "Too humid"])
+
+    def test_donuts_hover_shows_percent_and_count(self):
+        d = pd.DataFrame({"temperature": [18, 22, 28], "humidity": [20, 50, 70]})
+        fig = plot_comfort_donuts(d, count_label="days")
+        ht = fig.data[0].hovertemplate
+        self.assertIn("%{percent}", ht)
+        self.assertIn("days", ht)
+        cd = list(np.ravel(fig.data[0].customdata))
+        self.assertEqual(cd, ["Too cold", "In range", "Too warm"])
+
+    def test_donuts_empty_data(self):
+        # all-NaN -> zero totals (no percent text) and "—" center stats
+        d = pd.DataFrame({"temperature": [np.nan, np.nan],
+                          "humidity": [np.nan, np.nan]})
+        fig = plot_comfort_donuts(d)
+        self.assertTrue(all(txt == "" for txt in fig.data[0].text))
+        texts = " ".join(a.text for a in fig.layout.annotations)
+        self.assertIn("—", texts)
+
+    def test_donuts_center_stats(self):
+        d = pd.DataFrame({"temperature": [18, 22, 28], "humidity": [20, 50, 70]})
+        texts = " ".join(a.text for a in
+                         plot_comfort_donuts(d, show_center_stats=True).layout.annotations)
+        # average value with unit appears only in the centre stats
+        self.assertIn("°C", texts)
+        texts2 = " ".join(a.text for a in
+                          plot_comfort_donuts(d, show_center_stats=False).layout.annotations)
+        self.assertNotIn("°C", texts2)
 
     def test_overheating_bar(self):
         bar = pd.DataFrame({"label": ["A", "B", "C"], "hours": [50, 200, 500]})
