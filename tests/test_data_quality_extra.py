@@ -33,6 +33,11 @@ class TestInferInterval(unittest.TestCase):
         self.assertEqual(infer_interval(pd.Series([pd.Timestamp("2024-01-01")])),
                          pd.Timedelta(minutes=10))
 
+    def test_fallback_all_duplicate(self):
+        # all-equal timestamps -> no positive diff -> 10 min fallback
+        dup = pd.Series([pd.Timestamp("2024-01-01")] * 5)
+        self.assertEqual(infer_interval(dup), pd.Timedelta(minutes=10))
+
 
 class TestDetectGaps(unittest.TestCase):
     def test_gap_found(self):
@@ -52,6 +57,16 @@ class TestDetectGaps(unittest.TestCase):
             "value": range(20),
         })
         self.assertTrue(detect_gaps(df).empty)
+
+    def test_single_row(self):
+        df = pd.DataFrame({"timestamp": [pd.Timestamp("2024-01-01")],
+                           "value": [1.0]})
+        self.assertTrue(detect_gaps(df, pd.Timedelta(minutes=10)).empty)
+
+    def test_datetimeindex_dataframe_input(self):
+        # DataFrame indexed by timestamp (no 'timestamp' column)
+        df = _series_with_gap_and_stuck().set_index("timestamp")
+        self.assertEqual(len(detect_gaps(df)), 1)
 
 
 class TestDetectStuck(unittest.TestCase):
@@ -81,6 +96,13 @@ class TestDetectOutliers(unittest.TestCase):
         out = detect_outliers(df, 0, 100)
         self.assertEqual(len(out), 2)
         self.assertSetEqual(set(out["reason"]), {"below 0", "above 100"})
+
+    def test_no_outliers(self):
+        df = pd.DataFrame({
+            "timestamp": pd.date_range("2024-01-01", periods=3, freq="h"),
+            "value": [10, 20, 30],
+        })
+        self.assertTrue(detect_outliers(df, 0, 100).empty)
 
 
 class TestClassifyFlags(unittest.TestCase):

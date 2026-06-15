@@ -45,6 +45,15 @@ class TestAnalyzeSolarInfluence(unittest.TestCase):
         res = analyze_solar_influence(to_s(room), to_s(out), to_s(rad))
         self.assertGreater(res["pearson_r"], 0.5)
 
+    def test_no_sunny_hours_peak_none(self):
+        # enough hours, but radiation never exceeds the sunny threshold
+        idx = pd.date_range("2024-06-01", periods=24 * 5, freq="h")
+        mk = lambda v: pd.DataFrame({"timestamp": idx, "value": v})  # noqa: E731
+        res = analyze_solar_influence(
+            mk(np.full(len(idx), 21.0)), mk(np.full(len(idx), 18.0)),
+            mk(np.zeros(len(idx))))
+        self.assertIsNone(res["peak_hour_local"])
+
 
 class TestPlotSolarInfluence(unittest.TestCase):
     def test_dual_axis_traces(self):
@@ -66,6 +75,24 @@ class TestPlotSolarInfluence(unittest.TestCase):
                                "solar": np.zeros(48)}, index=idx)
         fig = plot_solar_influence(joined)
         self.assertEqual(len(fig.data), 2)
+
+    def test_timestamp_column_input(self):
+        idx = pd.date_range("2024-06-01", periods=48, freq="h")
+        joined = pd.DataFrame({"timestamp": idx,
+                               "t_room": np.arange(48.0),
+                               "solar": np.zeros(48)})
+        fig = plot_solar_influence(joined)
+        self.assertEqual(len(fig.data), 2)
+
+
+class TestPeakHourTzAware(unittest.TestCase):
+    def test_tz_aware_index(self):
+        room, out, rad = _sunny_dataset()
+        # make the timestamps tz-aware (UTC) to hit the tz_convert branch
+        for d in (room, out, rad):
+            d["timestamp"] = d["timestamp"].dt.tz_localize("UTC")
+        res = analyze_solar_influence(room, out, rad, local_tz="Europe/Zurich")
+        self.assertIsNotNone(res["peak_hour_local"])
 
 
 if __name__ == "__main__":

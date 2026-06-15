@@ -80,6 +80,41 @@ class TestAlignAndOverheating(unittest.TestCase):
         monthly = comfort.overheating_per_month(al, thr)
         self.assertListEqual(list(monthly.columns), ["month", "hours"])
 
+    def test_overheating_per_month_empty(self):
+        empty = pd.DataFrame(columns=["t_room", "t_oa", "t_oa_48h"])
+        monthly = comfort.overheating_per_month(empty, pd.Series(dtype=float))
+        self.assertTrue(monthly.empty)
+
+    def test_business_hours_only(self):
+        al = comfort.align_hourly(self.room, self.outdoor)
+        total, thr = comfort.overheating_hours(
+            al, summer_only=True, business_hours_only=True)
+        self.assertTrue(set(thr.index.hour) <= set(range(7, 22)))
+
+    def test_comfort_kpis_summer_only(self):
+        al = comfort.align_hourly(self.room, self.outdoor)
+        kpis = comfort.comfort_kpis(al, summer_only=True)
+        self.assertGreater(kpis["n_hours"], 0)
+
+    def test_comfort_kpis_empty_window(self):
+        # July data, but a (hypothetical) winter-only filter empties it
+        idx = pd.date_range("2024-01-01", periods=72, freq="h")
+        room = pd.DataFrame({"timestamp": idx, "value": np.linspace(20, 22, 72)})
+        out = pd.DataFrame({"timestamp": idx, "value": np.linspace(0, 5, 72)})
+        al = comfort.align_hourly(room, out)
+        kpis = comfort.comfort_kpis(al, summer_only=True)  # winter -> empty
+        self.assertEqual(kpis["n_hours"], 0)
+        self.assertFalse(kpis["sia180_compliant"])
+
+    def test_overheating_hours_empty(self):
+        idx = pd.date_range("2024-01-01", periods=72, freq="h")
+        room = pd.DataFrame({"timestamp": idx, "value": np.linspace(20, 22, 72)})
+        out = pd.DataFrame({"timestamp": idx, "value": np.linspace(0, 5, 72)})
+        al = comfort.align_hourly(room, out)
+        total, thr = comfort.overheating_hours(al, summer_only=True)  # winter
+        self.assertEqual(total, 0.0)
+        self.assertTrue(thr.empty)
+
 
 class TestComfortPlots(unittest.TestCase):
     def test_sia180_plot_uses_curve_functions(self):
@@ -103,6 +138,13 @@ class TestComfortPlots(unittest.TestCase):
         self.assertEqual(len(fig.data), 2)
         # temperature donut: 1 cold, 2 comfort, 1 warm
         self.assertEqual(list(fig.data[0].values), [1, 2, 1])
+
+    def test_donuts_german_labels(self):
+        d = pd.DataFrame({"temperature": [18, 22, 28],
+                          "humidity": [20, 50, 70]})
+        fig = plot_comfort_donuts(d, labels_de=True)
+        self.assertIn("Komfort", fig.data[0].labels)
+        self.assertIn("Zu trocken", fig.data[1].labels)
 
     def test_overheating_bar(self):
         bar = pd.DataFrame({"label": ["A", "B", "C"], "hours": [50, 200, 500]})

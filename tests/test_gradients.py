@@ -47,6 +47,11 @@ class TestComputeGradients(unittest.TestCase):
                               direction_labels=("up", "down"))
         self.assertSetEqual(set(g["direction"]), {"up", "down"})
 
+    def test_custom_season_labels(self):
+        labels = ["Frühling", "Sommer", "Herbst", "Winter"]
+        g = compute_gradients(_signal(), threshold=0.5, season_labels=labels)
+        self.assertTrue(set(g["season"]) <= set(labels))
+
     def test_empty_result(self):
         # huge threshold -> nothing passes
         g = compute_gradients(_signal(), threshold=100.0)
@@ -77,6 +82,17 @@ class TestSummaries(unittest.TestCase):
         ms = mean_gradients_by_season(g)
         self.assertListEqual(list(ms.columns), ["season", "direction", "mean", "n"])
 
+    def test_by_season_with_order(self):
+        g = compute_gradients(_signal(), threshold=0.5)
+        ms = mean_gradients_by_season(
+            g, season_order=["Winter", "Spring", "Summer", "Fall"])
+        self.assertFalse(ms.empty)
+
+    def test_by_season_empty(self):
+        ms = mean_gradients_by_season(pd.DataFrame(
+            columns=["timestamp", "gradient", "direction", "season"]))
+        self.assertTrue(ms.empty)
+
 
 class TestPlot(unittest.TestCase):
     def test_boxplots_season(self):
@@ -94,6 +110,29 @@ class TestPlot(unittest.TestCase):
         fig = plot_gradient_boxplots(pd.DataFrame(
             columns=["timestamp", "gradient", "direction", "season"]))
         self.assertEqual(len(fig.data), 0)
+
+    def test_boxplots_other_groupings(self):
+        g = compute_gradients(_signal(), threshold=0.5)
+        for gb in ("month", "weekday", "hour"):
+            fig = plot_gradient_boxplots(g, groupby=gb)
+            self.assertEqual(len(fig.data), 2, gb)
+
+    def test_invalid_groupby_raises(self):
+        g = compute_gradients(_signal(), threshold=0.5)
+        with self.assertRaises(ValueError):
+            plot_gradient_boxplots(g, groupby="decade")
+
+    def test_season_order_applied(self):
+        g = compute_gradients(_signal(), threshold=0.5)
+        order = ["Winter", "Spring", "Summer", "Fall"]
+        fig = plot_gradient_boxplots(g, groupby="season", season_order=order)
+        self.assertEqual(fig.layout.xaxis.categoryorder, "array")
+        self.assertEqual(list(fig.layout.xaxis.categoryarray), order)
+
+    def test_single_direction_only(self):
+        g = compute_gradients(_signal(), threshold=0.5)
+        fig = plot_gradient_boxplots(g[g["direction"] == "heating"])
+        self.assertEqual(len(fig.data), 1)
 
 
 if __name__ == "__main__":
