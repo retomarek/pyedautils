@@ -13,3 +13,4 @@ docs/_build/
 .pytest_cache/
 *.pyc
 *.pyc
+/pyedautils/plots/__pycache__
