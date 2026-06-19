@@ -833,8 +833,25 @@ class TestPlotMollierHx(unittest.TestCase):
         })
         html = plot_mollier_hx(data=df)
         self.assertIn("dataRecords", html)
-        for season in ["Winter", "Frühling", "Sommer", "Herbst"]:
+        for season in ["Winter", "Spring", "Summer", "Fall"]:
             self.assertIn(season, html)
+
+    def test_frequency_lines_and_invalid_unit(self):
+        idx = pd.date_range("2023-01-01", periods=240, freq="h")
+        df = pd.DataFrame({"timestamp": idx,
+                           "humidity": np.linspace(40, 60, 240),
+                           "temperature": np.linspace(18, 28, 240)})
+        html = plot_mollier_hx(data=df, show_frequency=True,
+                               frequency_unit="days")
+        self.assertIn("buildFreqContours", html)
+        with self.assertRaises(ValueError):
+            plot_mollier_hx(data=df, frequency_unit="weeks")
+
+    def test_warning_band_with_label(self):
+        html = plot_mollier_hx(comfort_zone_orange={
+            "temperature": (19, 27), "rel_humidity": (0.25, 0.70),
+            "label": "Band A"})
+        self.assertIn("Band A", html)
 
     def test_empty_dataframe(self):
         df = pd.DataFrame(columns=["timestamp", "humidity", "temperature"])
