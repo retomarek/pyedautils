@@ -15,6 +15,7 @@ from pyedautils.plots.comfort import (
     plot_comfort_sia180,
     plot_overheating_bar,
     plot_overheating_timeseries,
+    plot_temp_humidity_timeseries,
 )
 
 
@@ -243,6 +244,67 @@ class TestComfortPlots(unittest.TestCase):
         aligned = comfort.align_hourly(room, out)
         fig = plot_overheating_timeseries(aligned, method="fixed", summer_only=False)
         self.assertTrue(any("26.5" in (tr.name or "") for tr in fig.data))
+
+
+class TestTempHumidityTimeseries(unittest.TestCase):
+    def _df(self):
+        idx = pd.date_range("2024-01-01", periods=72, freq="h")
+        return pd.DataFrame({
+            "timestamp": idx,
+            "temperature": np.linspace(10, 25, 72),
+            "humidity": np.linspace(35, 75, 72),
+        })
+
+    def test_lines_bands_and_legend(self):
+        fig = plot_temp_humidity_timeseries(
+            self._df(), temp_band=(18, 22), hum_band=(40, 60),
+            temp_band_orange=(17, 23), temp_band_red=(16, 24),
+            hum_band_orange=(35, 65), hum_band_red=(30, 70),
+            temp_title="Temperature", hum_title="abs. Humidity")
+        self.assertIsInstance(fig, go.Figure)
+        names = [t.name for t in fig.data]
+        for n in ("Temperature", "Humidity", "Comfort band",
+                  "Moderate", "Severe"):
+            self.assertIn(n, names)
+        # per row: 1 green rect + 2 green edge lines + 2 orange + 2 red = 7
+        self.assertEqual(len(fig.layout.shapes), 14)
+        # optional per-subplot titles are rendered as annotations
+        ann = [a.text for a in fig.layout.annotations]
+        self.assertIn("Temperature", ann)
+        self.assertIn("abs. Humidity", ann)
+        # hover uses T / phi and the h,x-diagram date format
+        temp = next(t for t in fig.data if t.name == "Temperature")
+        self.assertIn("T = ", temp.hovertemplate)
+        self.assertIn("%Y-%m-%d", temp.hovertemplate)
+
+    def test_no_bands_daily_only(self):
+        # 72 hourly rows -> 3 daily means; bands disabled -> no legend swatches
+        df = self._df().assign(temperature=20.0, humidity=50.0)
+        fig = plot_temp_humidity_timeseries(
+            df, show_hourly=False,
+            temp_band=None, hum_band=None,
+            temp_band_orange=None, hum_band_orange=None,
+            temp_band_red=None, hum_band_red=None)
+        line = next(t for t in fig.data if t.name == "Temperature")
+        self.assertEqual(len(line.x), 3)
+        self.assertNotIn("Comfort band", [t.name for t in fig.data])
+        self.assertEqual(len(fig.layout.shapes), 0)
+
+    def test_hourly_only_no_daily(self):
+        fig = plot_temp_humidity_timeseries(self._df(), show_daily_mean=False)
+        # only the faint hourly markers, no daily-mean line
+        self.assertTrue(any(t.mode == "markers" for t in fig.data))
+        self.assertFalse(any(t.name == "Temperature" for t in fig.data))
+
+    def test_single_column_and_empty(self):
+        # humidity column absent -> second subplot stays empty (guard hit)
+        df = self._df()[["timestamp", "temperature"]]
+        fig = plot_temp_humidity_timeseries(df, show_hourly=False)
+        self.assertNotIn("Humidity", [t.name for t in fig.data])
+        # empty frame -> no daily resample, still returns a figure
+        empty = self._df().iloc[0:0]
+        self.assertIsInstance(
+            plot_temp_humidity_timeseries(empty), go.Figure)
 
 
 class TestComfortCompass(unittest.TestCase):

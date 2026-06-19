@@ -1639,3 +1639,151 @@ def plot_overheating_bar(
         margin=dict(l=10, r=10, t=60, b=10),
     )
     return fig
+
+
+# Temperature & humidity time-series colours.
+_TS_TEMP_COLOR = "#E53935"     # red — temperature points
+_TS_HUM_COLOR = "#2563EB"      # blue — humidity points
+_TS_GREEN = "#4d7c0f"          # darker green — visible band edge lines + swatch
+_TS_ORANGE = "#E67E22"         # orange warning limits
+_TS_RED = "#C0392B"            # red critical limits
+
+
+def plot_temp_humidity_timeseries(
+    data: pd.DataFrame,
+    temp_band: Optional[Tuple[float, float]] = (20.0, 26.0),
+    hum_band: Optional[Tuple[float, float]] = (30.0, 65.0),
+    temp_band_orange: Optional[Tuple[float, float]] = (19.0, 27.0),
+    hum_band_orange: Optional[Tuple[float, float]] = (25.0, 70.0),
+    temp_band_red: Optional[Tuple[float, float]] = (17.5, 28.5),
+    hum_band_red: Optional[Tuple[float, float]] = (20.0, 75.0),
+    show_hourly: bool = True,
+    show_daily_mean: bool = True,
+    temp_title: Optional[str] = None,
+    hum_title: Optional[str] = None,
+    title: str = "Temperature & humidity over time",
+    height: int = 600,
+) -> go.Figure:
+    """Temperature and humidity time series with comfort and warning limits.
+
+    Two stacked subplots (temperature on top, humidity below, shared time axis).
+    Each shows the hourly readings as faint dots and the daily-mean as a bold
+    line, plus — when given — the green **comfort target band** (filled, with a
+    solid edge line top and bottom) and the **moderate** and **severe** warning
+    limits as dashed threshold lines (the same levels used by the Mollier
+    comfort zone and the kg-zh comfort compass). Hover labels use ``T`` / ``φ``
+    and the ``%Y-%m-%d %H:%M`` date format of the Mollier h,x chart.
+
+    The daily-mean line is reindexed onto a continuous daily grid, so gaps in
+    the data (missing days) appear as **breaks** rather than straight connecting
+    lines (``connectgaps=False``).
+
+    Args:
+        data: DataFrame with ``timestamp``, ``temperature`` [°C] and
+            ``humidity`` [%rH] columns (read by name, order-independent).
+        temp_band / hum_band: ``(low, high)`` comfort target band (green fill +
+            solid edge lines). Defaults to the Mollier h,x comfort zone
+            (T 20–26 °C, φ 30–65 %). ``None`` to omit.
+        temp_band_orange / hum_band_orange: ``(low, high)`` moderate warning
+            limits, drawn as dashed orange lines. Defaults to ± 1 K / ± 5 %
+            around the comfort band. ``None`` to omit.
+        temp_band_red / hum_band_red: ``(low, high)`` severe warning limits,
+            drawn as dashed red lines. Defaults to ± 2.5 K / ± 10 % around the
+            comfort band. ``None`` to omit.
+        show_hourly: Overlay the raw readings as faint dots. Default ``True``.
+        show_daily_mean: Draw the daily-mean line. Default ``True``.
+        temp_title / hum_title: Optional title shown above the temperature /
+            humidity subplot (e.g. ``"Temperature"``, ``"abs. Humidity"``).
+            ``None`` to omit.
+        title: Figure title.
+        height: Figure height in pixels. Default 600.
+
+    Returns:
+        go.Figure
+    """
+    from plotly.subplots import make_subplots
+
+    df = data.copy()
+    ts_col = "timestamp" if "timestamp" in df.columns else df.columns[0]
+    df["timestamp"] = pd.to_datetime(df[ts_col])
+    cols = [c for c in ("temperature", "humidity") if c in df.columns]
+    df = df[["timestamp"] + cols].sort_values("timestamp")
+
+    # Daily means on a continuous daily grid -> missing days become NaN so the
+    # line breaks at gaps instead of being drawn straight across them.
+    daily = None
+    if show_daily_mean and not df.empty:
+        daily = df.set_index("timestamp").resample("D").mean().reset_index()
+
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.09,
+        subplot_titles=(temp_title or "", hum_title or ""))
+
+    def _series(row, col, color, unit, fmt, sym, legend):
+        if col not in df.columns:
+            return
+        name = col.capitalize()
+        if show_hourly:
+            fig.add_trace(go.Scattergl(
+                x=df["timestamp"], y=df[col], mode="markers",
+                marker=dict(color=color, size=5, opacity=0.25),
+                name=f"{name} (hourly)", showlegend=False, legend=legend,
+                hovertemplate="%{x|%Y-%m-%d %H:%M}<br>" + sym
+                + " = %{y:" + fmt + "} " + unit + "<extra></extra>"),
+                row=row, col=1)
+        if daily is not None:
+            fig.add_trace(go.Scattergl(
+                x=daily["timestamp"], y=daily[col], mode="lines",
+                line=dict(color="black", width=1.8), connectgaps=False,
+                name=name, legend=legend,
+                hovertemplate="%{x|%Y-%m-%d}<br>" + sym
+                + " = %{y:" + fmt + "} " + unit + "<extra></extra>"),
+                row=row, col=1)
+    _series(1, "temperature", _TS_TEMP_COLOR, "°C", ".1f", "T", "legend")
+    _series(2, "humidity", _TS_HUM_COLOR, "%", ".0f", "φ", "legend2")
+
+    def _limits(row, band, orange, red):
+        if band:
+            fig.add_hrect(y0=min(band), y1=max(band), row=row, col=1,
+                          fillcolor="rgba(154,205,50,0.4)", line_width=0,
+                          layer="below")
+            for y in band:   # solid edge line top and bottom of the green band
+                fig.add_hline(y=y, row=row, col=1, layer="below",
+                              line=dict(color=_TS_GREEN, width=2))
+        for lim, color in ((orange, _TS_ORANGE), (red, _TS_RED)):
+            if lim:
+                for y in lim:   # warning limits behind the data, like the band
+                    fig.add_hline(y=y, row=row, col=1, layer="below",
+                                  line=dict(color=color, width=2, dash="dash"))
+    _limits(1, temp_band, temp_band_orange, temp_band_red)
+    _limits(2, hum_band, hum_band_orange, hum_band_red)
+
+    # Legend swatches — add_hrect / add_hline create no legend entries.
+    # One legend per subplot, so each diagram carries its own band swatches.
+    for legend, row, bnd, org, red in (
+            ("legend", 1, temp_band, temp_band_orange, temp_band_red),
+            ("legend2", 2, hum_band, hum_band_orange, hum_band_red)):
+        for show, color, name, dash in (
+                (bool(bnd), _TS_GREEN, "Comfort band", "solid"),
+                (bool(org), _TS_ORANGE, "Moderate", "dash"),
+                (bool(red), _TS_RED, "Severe", "dash")):
+            if show:
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None], mode="lines", name=name,
+                    line=dict(color=color, width=2, dash=dash),
+                    hoverinfo="skip", legend=legend), row=row, col=1)
+
+    # No horizontal grid: the y grid lines would be drawn on top of the
+    # (background) comfort band and warning lines and hide the ones that sit on
+    # a grid value. The bands/limits provide the horizontal reference instead.
+    fig.update_yaxes(showgrid=False)
+    fig.update_yaxes(title_text="Temperature [°C]", row=1, col=1)
+    fig.update_yaxes(title_text="Humidity [%rH]", row=2, col=1)
+    fig.update_layout(
+        title_text=f"<b>{title}</b>", title_font=dict(size=20), title_x=0.5,
+        template="plotly_white", height=height,
+        legend=dict(yanchor="top", y=1.0, xanchor="left", x=1.01),
+        legend2=dict(yanchor="top", y=0.47, xanchor="left", x=1.01),
+        margin=dict(l=10, r=150, t=60, b=10),
+    )
+    return fig
