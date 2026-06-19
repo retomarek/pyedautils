@@ -8,8 +8,11 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
-echo Baue Jupyter Book Doku (fuehrt die Beispiel-Notebooks aus) ...
-jupyter-book build docs/
+echo Baue Jupyter Book Doku (fuehrt ALLE Beispiel-Notebooks neu aus) ...
+REM --all erzwingt einen vollstaendigen Rebuild. Ohne das baut Sphinx nur
+REM Seiten neu, deren .ipynb sich geaendert hat - reine Code-Aenderungen in
+REM pyedautils wuerden die Diagramme sonst NICHT neu rendern.
+jupyter-book build docs/ --all
 if errorlevel 1 (
     echo.
     echo [FEHLER] Build fehlgeschlagen - siehe Meldungen oben.
