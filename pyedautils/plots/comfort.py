@@ -154,8 +154,9 @@ def plot_comfort_temp_humidity(
     "still comfortable" (orange), based on common building standards.
 
     Args:
-        data: DataFrame ``[timestamp, temperature, humidity]``.
-            Humidity in %rH, temperature in °C.
+        data: DataFrame with ``timestamp``, ``temperature`` and ``humidity``
+            columns (read by name, so the order does not matter). Humidity in
+            %rH, temperature in °C.
         title: Plot title.
         colors: Season color overrides.
 
@@ -166,9 +167,12 @@ def plot_comfort_temp_humidity(
 
     c = {**DEFAULT_SEASON_COLORS, **(colors or {})}
 
+    # Read by column name (like plot_comfort_donuts / comfort_compass_*) so the
+    # column order does not matter; a timestamp + temperature + humidity column
+    # are required.
     df = data.copy()
-    df.columns = ["timestamp", "temperature", "humidity"]
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    ts_col = "timestamp" if "timestamp" in df.columns else df.columns[0]
+    df["timestamp"] = pd.to_datetime(df[ts_col])
     df["day"] = df["timestamp"].dt.date
 
     daily = df.groupby("day").agg(
