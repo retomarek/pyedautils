@@ -1,6 +1,4 @@
 
-pyedautils/__pycache__/
-tests/__pycache__/
 build/
 dist/
 pyedautils.egg-info/
@@ -13,4 +11,4 @@ docs/_build/
 .pytest_cache/
 *.pyc
 *.pyc
-/pyedautils/plots/__pycache__
+__pycache__/
