@@ -10,5 +10,4 @@ docs/_build/
 .ruff_cache/
 .pytest_cache/
 *.pyc
-*.pyc
 __pycache__/
