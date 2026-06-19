@@ -22,16 +22,28 @@ import numpy as np
 import pandas as pd
 
 
+def _ns(x):
+    """Return a nanosecond-resolution DatetimeIndex from a Series or Index.
+
+    Different datetime units (e.g. ``[us]`` from Parquet) fail to align in
+    :func:`pandas.concat`; nanoseconds is the common ground. No-op on
+    pandas < 2.0. Works for tz-naive and tz-aware input.
+    """
+    idx = pd.DatetimeIndex(pd.to_datetime(x))
+    as_unit = getattr(idx, "as_unit", None)
+    return as_unit("ns") if as_unit is not None else idx
+
+
 def _hourly(data: Union[pd.Series, pd.DataFrame]) -> pd.Series:
     """Hourly mean of a ``[timestamp, value]`` DataFrame or a Series."""
     if isinstance(data, pd.Series):
         s = data.copy()
-        s.index = pd.to_datetime(s.index)
+        s.index = _ns(s.index)
     else:
         df = data.copy()
         df.columns = ["timestamp", "value"]
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        s = df.set_index("timestamp")["value"]
+        df = df.set_index(_ns(df["timestamp"]))
+        s = df["value"]
     return s.resample("1h").mean()
 
 

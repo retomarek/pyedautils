@@ -8,9 +8,13 @@ import plotly.graph_objects as go
 
 from pyedautils import comfort
 from pyedautils.plots.comfort import (
+    _COMPASS_NAMES_DE,
+    _COMPASS_STAGE_NAMES_DE,
+    plot_comfort_compass,
     plot_comfort_donuts,
     plot_comfort_sia180,
     plot_overheating_bar,
+    plot_overheating_timeseries,
 )
 
 
@@ -55,6 +59,20 @@ class TestAlignAndOverheating(unittest.TestCase):
     def test_align_hourly_empty(self):
         al = comfort.align_hourly(pd.DataFrame(), self.outdoor)
         self.assertTrue(al.empty)
+
+    def test_align_hourly_microsecond_resolution(self):
+        """Regression: datetime64[us] inputs (e.g. from Parquet) must still join.
+
+        pandas >= 2.0 keeps non-nanosecond units; mismatched units silently
+        break concat alignment, yielding an almost-empty result.
+        """
+        room = self.room.copy()
+        outdoor = self.outdoor.copy()
+        room["timestamp"] = room["timestamp"].astype("datetime64[us]")
+        outdoor["timestamp"] = outdoor["timestamp"].astype("datetime64[us]")
+        al = comfort.align_hourly(room, outdoor)
+        # full overlap -> dozens of aligned hours, not a handful
+        self.assertGreater(len(al), 50)
 
     def test_overheating_hours_adaptive(self):
         al = comfort.align_hourly(self.room, self.outdoor)
@@ -189,12 +207,136 @@ class TestComfortPlots(unittest.TestCase):
                           plot_comfort_donuts(d, show_center_stats=False).layout.annotations)
         self.assertNotIn("°C", texts2)
 
-    def test_overheating_bar(self):
-        bar = pd.DataFrame({"label": ["A", "B", "C"], "hours": [50, 200, 500]})
-        fig = plot_overheating_bar(bar)
+    def test_overheating_bar_monthly(self):
+        monthly = pd.DataFrame({"month": [6, 7, 8], "hours": [12, 40, 25]})
+        fig = plot_overheating_bar(monthly)
         self.assertEqual(len(fig.data), 1)
-        # sorted ascending -> worst (C) last
-        self.assertEqual(list(fig.data[0].y), ["A", "B", "C"])
+        # all 12 months on the x-axis, Jan–Dec
+        self.assertEqual(list(fig.data[0].x), ["Jan", "Feb", "Mar", "Apr", "May",
+                                               "Jun", "Jul", "Aug", "Sep", "Oct",
+                                               "Nov", "Dec"])
+        # July value present, missing months zero-filled
+        self.assertEqual(fig.data[0].y[6], 40)   # Jul
+        self.assertEqual(fig.data[0].y[0], 0)    # Jan
+
+    def test_overheating_bar_empty(self):
+        empty = pd.DataFrame(columns=["month", "hours"])
+        fig = plot_overheating_bar(empty)
+        self.assertEqual(list(fig.data[0].y), [0] * 12)
+
+    def test_overheating_timeseries(self):
+        idx = pd.date_range("2024-07-01", periods=72, freq="h")
+        room = pd.DataFrame({"timestamp": idx, "value": np.linspace(22, 30, 72)})
+        out = pd.DataFrame({"timestamp": idx, "value": np.linspace(15, 25, 72)})
+        aligned = comfort.align_hourly(room, out)
+        fig = plot_overheating_timeseries(aligned, method="adaptive", summer_only=True)
+        names = [tr.name for tr in fig.data]
+        self.assertIn("Room temperature", names)
+        self.assertIn("Overheating", names)
+        # threshold line carries the SIA 180 label in adaptive mode
+        self.assertTrue(any("SIA 180" in n for n in names))
+
+    def test_overheating_timeseries_fixed(self):
+        idx = pd.date_range("2024-07-01", periods=72, freq="h")
+        room = pd.DataFrame({"timestamp": idx, "value": np.linspace(22, 30, 72)})
+        out = pd.DataFrame({"timestamp": idx, "value": np.linspace(15, 25, 72)})
+        aligned = comfort.align_hourly(room, out)
+        fig = plot_overheating_timeseries(aligned, method="fixed", summer_only=False)
+        self.assertTrue(any("26.5" in (tr.name or "") for tr in fig.data))
+
+
+class TestComfortCompass(unittest.TestCase):
+    def test_categories(self):
+        cats = comfort.comfort_compass_categories()
+        self.assertEqual(len(cats), 25)        # "ok" + 8 directions x 3 stages
+        self.assertEqual(cats[0], "ok")
+        self.assertIn("w_l", cats)
+        self.assertIn("f_s", cats)
+
+    def test_distribution_states_and_stages(self):
+        # one row per day so daily means equal the given values
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame({
+            #          ok  warm-mild warm-mod warm-sev cold-mod warm+humid
+            "temperature": [22, 24.5, 26.0, 27.5, 18.0, 26.0],
+            "humidity":    [40, 40.0, 40.0, 40.0, 40.0, 56.0],
+        }, index=idx)
+        dist = comfort.comfort_compass_distribution(df, (20, 24), (30, 50))
+        self.assertEqual(sum(dist.values()), 6)             # counts = days
+        self.assertEqual(dist["ok"], 1)
+        self.assertEqual(dist["w_l"], 1)   # +0.5 K  -> mild
+        self.assertEqual(dist["w_d"], 1)   # +2.0 K  -> moderate
+        self.assertEqual(dist["w_s"], 1)   # +3.5 K  -> severe
+        self.assertEqual(dist["c_d"], 1)   # -2.0 K  -> moderate cold
+        self.assertEqual(dist["wf_d"], 1)  # warm+humid, worse axis -> moderate
+
+    def test_distribution_aggregate_false_empty_and_error(self):
+        # aggregate_daily=False counts the rows as given
+        df = pd.DataFrame({"temperature": [22, 22, 28], "humidity": [40, 40, 40]})
+        dist = comfort.comfort_compass_distribution(
+            df, (20, 24), (30, 50), aggregate_daily=False)
+        self.assertEqual(dist["ok"], 2)
+        self.assertEqual(dist["w_s"], 1)   # +4 K -> severe
+        # daily aggregation requires a DatetimeIndex
+        with self.assertRaises(ValueError):
+            comfort.comfort_compass_distribution(df, (20, 24), (30, 50))
+        # all-NaN -> all zeros
+        e = pd.DataFrame({"temperature": [np.nan], "humidity": [np.nan]},
+                         index=pd.date_range("2024-01-01", periods=1, freq="D"))
+        de = comfort.comfort_compass_distribution(e, (20, 24), (30, 50))
+        self.assertEqual(sum(de.values()), 0)
+
+    def test_distribution_absolute_humidity(self):
+        # 30 °C / 51 % rH ~ 13.6 g/kg: within the relative band (30–65 %) but
+        # above the absolute cap (12 g/kg) -> warm+humid once hum_abs_band is set.
+        df = pd.DataFrame({"temperature": [30.0], "humidity": [51.0]})
+        rel = comfort.comfort_compass_distribution(
+            df, (20, 26), (30, 65), aggregate_daily=False)
+        self.assertEqual(rel["w_s"], 1)            # too warm only (relative)
+        relabs = comfort.comfort_compass_distribution(
+            df, (20, 26), (30, 65), hum_abs_band=(0.0, 0.012),
+            aggregate_daily=False)
+        self.assertEqual(relabs["wf_s"], 1)        # warm + humid (rel OR abs)
+        self.assertEqual(relabs["w_s"], 0)
+
+    def test_plot_basics_and_zoom_off(self):
+        fig = plot_comfort_compass({"ok": 50, "f_l": 30, "w_d": 20}, title="Room A")
+        self.assertIsInstance(fig, go.Figure)
+        self.assertFalse(fig.layout.dragmode)                 # zoom disabled
+        self.assertTrue(any(t.type == "barpolar" for t in fig.data))
+
+    def test_plot_legend_counts_and_toggle(self):
+        fig = plot_comfort_compass({"ok": 50, "f_l": 30, "w_d": 20},
+                                   count_label="days")
+        bullets = [a for a in fig.layout.annotations if "●" in a.text]
+        self.assertEqual(len(bullets), 1)
+        self.assertIn("days", bullets[0].text)
+        self.assertIn("in range", bullets[0].text)            # lower-case default
+        # legend is optional
+        off = plot_comfort_compass({"ok": 50, "f_l": 50}, show_legend=False)
+        self.assertFalse(any("●" in a.text for a in off.layout.annotations))
+
+    def test_plot_overrides_german(self):
+        fig = plot_comfort_compass(
+            {"ok": 50, "f_l": 30, "w_d": 20}, count_label="Tage",
+            names=_COMPASS_NAMES_DE, stage_names=_COMPASS_STAGE_NAMES_DE)
+        bullet = next(a for a in fig.layout.annotations if "●" in a.text)
+        self.assertIn("Tage", bullet.text)
+        self.assertIn("im Zielband", bullet.text)
+        hov = "".join("".join(t.hovertext) for t in fig.data
+                      if getattr(t, "hovertext", None))
+        self.assertIn("mittel", hov)                          # German stage name
+
+    def test_plot_centre_pct_threshold(self):
+        def centre_pct(fig):
+            for t in fig.data:
+                if getattr(t, "mode", None) == "text" and list(t.r or []) == [0]:
+                    return t.text[0]
+            return None
+        self.assertEqual(centre_pct(plot_comfort_compass({"ok": 40, "f_l": 60})),
+                         "40%")
+        # below 15 % the centre value is dropped (disc too small)
+        self.assertIsNone(centre_pct(plot_comfort_compass({"ok": 5, "f_l": 95})))
 
 
 if __name__ == "__main__":
