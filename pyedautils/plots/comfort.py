@@ -1787,3 +1787,137 @@ def plot_temp_humidity_timeseries(
         margin=dict(l=10, r=150, t=60, b=10),
     )
     return fig
+
+
+def _load_d3_chart_js():
+    """Load the bundled d3-mollierhx sources for the stateful MollierChart."""
+    from importlib import resources as _res
+    d = _res.files("pyedautils") / "data" / "d3_mollierhx"
+    return "\n".join(
+        (d / f).read_text(encoding="utf-8")
+        for f in ("mollierFunctions.js", "coordinateGenerator.js",
+                  "drawComfort.js", "mollierChart.js")
+    )
+
+
+def plot_mollier_hx_fast(
+    data: Optional[pd.DataFrame] = None,
+    pressure: float = 101325.0,
+    altitude: Optional[float] = None,
+    domain_x: Tuple[float, float] = (0.0, 0.020),
+    domain_y: Tuple[float, float] = (-20.0, 50.0),
+    comfort_zone: Optional[Dict[str, Tuple[float, float]]] = None,
+    height: int = 700,
+    convention: str = 'classical',
+    highlight_latest: bool = True,
+    highlight_color: Optional[str] = 'black',
+    states: Optional[Sequence] = None,
+    labels: Optional[List[str]] = None,
+    comfort_label: str = 'Comfort zone',
+    comfort_zone_orange: Optional[Dict[str, object]] = None,
+    comfort_zone_red: Optional[Dict[str, object]] = None,
+    show_temperature: bool = True,
+    show_density: bool = True,
+    show_rel_humidity: bool = True,
+    show_enthalpy: bool = True,
+    show_abs_humidity: bool = True,
+    x_axis_title: str = 'absolute water content x [g/kg]',
+    season_labels: Optional[Dict[str, str]] = None,
+    show_frequency: bool = False,
+    frequency_unit: str = 'hours',
+    frequency_smoothing: float = 4.0,
+) -> str:
+    """Stateful, fast variant of :func:`plot_mollier_hx`.
+
+    Renders with the d3-mollierhx ``MollierChart`` class: the coordinate grid is
+    drawn once and the overlays (measurement points, comfort zone, warning bands,
+    frequency lines, process chain) update in place. The created chart is exposed
+    on ``window["mollier_<uid>"]`` so an embedding app can call its update methods
+    (``setData``, ``setComfort``, ``setFrequency`` ...) without re-rendering — the
+    basis for fast, interactive dashboards.
+
+    Same inputs as :func:`plot_mollier_hx`. A few legend-only options
+    (``comfort_label``, ``highlight_latest``, ``highlight_color``,
+    ``season_labels``) are accepted for signature compatibility but not yet used
+    by the chart.
+
+    Returns:
+        str: Self-contained HTML (loads D3 from the CDN + an inline bundle).
+    """
+    import json
+    import uuid
+
+    from pyedautils._mollier import _check_convention
+    convention = _check_convention(convention)
+    cid = "mollier_" + uuid.uuid4().hex[:8]
+
+    records = []
+    if data is not None and len(data) > 0:
+        df = data.copy()
+        df.columns = ["timestamp", "humidity", "temperature"]
+        for row in df.itertuples(index=False):
+            ts, hum, temp = row[0], row[1], row[2]
+            if hum is None or temp is None or pd.isna(hum) or pd.isna(temp):
+                continue
+            records.append({
+                "t": float(temp), "rh": float(hum),
+                "time": None if (ts is None or pd.isna(ts)) else str(ts),
+            })
+
+    chain = []
+    if states:
+        for i, s in enumerate(states):
+            chain.append({
+                "x": float(s.x), "y": float(s.y), "number": str(i + 1),
+                "label": str(labels[i]) if labels and i < len(labels) else str(i + 1),
+                "t": round(float(s.t), 1), "phi": round(float(s.phi) * 100, 1),
+                "xg": round(float(s.x) * 1000, 2), "h": round(float(s.h), 1),
+            })
+
+    def _zone(z):
+        if not z:
+            return None
+        return {
+            "t": list(z.get("temperature", (20, 26))),
+            "phi": list(z.get("rel_humidity", (0.30, 0.65))),
+            "x": list(z.get("abs_humidity", (0, 0.0115))),
+        }
+
+    def _band(z, color):
+        if not z:
+            return None
+        b = _zone(z)
+        b["x"] = list(z.get("abs_humidity", (0, 0.030)))
+        b["color"] = z.get("color", color)
+        return b
+
+    opts = {
+        "height": int(height), "convention": convention, "pressure": float(pressure),
+        "domainX": list(domain_x), "domainY": list(domain_y),
+        "lineOpts": {
+            "showTemperature": bool(show_temperature), "showDensity": bool(show_density),
+            "showRelHumidity": bool(show_rel_humidity), "showEnthalpy": bool(show_enthalpy),
+            "showAbsHumidity": bool(show_abs_humidity), "xAxisTitle": x_axis_title,
+        },
+    }
+    freq = {"show": bool(show_frequency), "days": (frequency_unit == "days"),
+            "smoothing": float(frequency_smoothing)}
+
+    calls = ["var c=new MollierChart('#" + cid + "'," + json.dumps(opts) + ");"]
+    if records:
+        calls.append("c.setData(" + json.dumps(records) + ");")
+    if chain:
+        calls.append("c.setProcessChain(" + json.dumps(chain) + ");")
+    calls.append("c.setComfort(" + json.dumps(_zone(comfort_zone)) + ");")
+    calls.append("c.setBands(" + json.dumps(_band(comfort_zone_orange, '#E67E22'))
+                 + "," + json.dumps(_band(comfort_zone_red, '#C0392B')) + ");")
+    calls.append("c.setFrequency(" + json.dumps(freq) + ");")
+    calls.append("window['" + cid + "']=c;")
+
+    js = _load_d3_chart_js()
+    return (
+        '<div id="' + cid + '" style="width:100%"></div>\n'
+        '<script src="https://d3js.org/d3.v5.min.js"></script>\n'
+        '<script>' + js + '</script>\n'
+        '<script>(function(){' + " ".join(calls) + '})();</script>'
+    )
