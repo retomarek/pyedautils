@@ -37,7 +37,7 @@ from pyedautils._mollier import (
     y_phix,
     y_rhox,
 )
-from pyedautils.plots import plot_mollier_hx
+from pyedautils.plots import plot_mollier_hx, plot_mollier_hx_fast
 
 
 class TestSaturationPressure(unittest.TestCase):
@@ -1057,6 +1057,50 @@ class TestPlotMollierHx(unittest.TestCase):
         # The phi% value at T=11°C, RH=42% is roughly 42, so look for the
         # serialised "temp": 11.0 marker which is unique to that row.
         self.assertRegex(html, r'currentRecord = \{[^}]*"temp": 11')
+
+
+class TestPlotMollierHxFast(unittest.TestCase):
+    """Tests for plot_mollier_hx_fast (stateful MollierChart HTML output)."""
+
+    def test_basic_no_data(self):
+        html = plot_mollier_hx_fast()
+        self.assertIsInstance(html, str)
+        self.assertIn("d3.v5.min.js", html)
+        self.assertIn("class MollierChart", html)   # the bundle is inlined
+        self.assertIn("new MollierChart", html)
+        self.assertIn("<div id=", html)
+        self.assertNotIn("<html>", html)
+
+    def test_custom_pressure_and_comfort(self):
+        html = plot_mollier_hx_fast(
+            pressure=95000.0,
+            comfort_zone={"temperature": (18, 24), "rel_humidity": (0.2, 0.7),
+                          "abs_humidity": (0, 0.012)},
+        )
+        self.assertIn("95000", html)
+        self.assertIn("c.setComfort(", html)
+        self.assertIn("[18, 24]", html)
+
+    def test_with_data_and_frequency(self):
+        idx = pd.date_range("2023-01-01", periods=240, freq="h")
+        df = pd.DataFrame({"timestamp": idx,
+                           "humidity": np.linspace(40, 60, 240),
+                           "temperature": np.linspace(18, 28, 240)})
+        html = plot_mollier_hx_fast(data=df, show_frequency=True, frequency_unit="days")
+        self.assertIn("c.setData(", html)
+        self.assertIn('"show": true', html.replace(" ", " "))
+        self.assertIn('"days": true', html)
+
+    def test_warning_band_colour(self):
+        html = plot_mollier_hx_fast(comfort_zone_orange={
+            "temperature": (19, 27), "rel_humidity": (0.25, 0.70)})
+        self.assertIn("c.setBands(", html)
+        self.assertIn("#E67E22", html)
+
+    def test_empty_dataframe(self):
+        df = pd.DataFrame(columns=["timestamp", "humidity", "temperature"])
+        html = plot_mollier_hx_fast(data=df)
+        self.assertNotIn("c.setData(", html)   # no points -> no setData call
 
 
 if __name__ == '__main__':
