@@ -1102,6 +1102,32 @@ class TestPlotMollierHxFast(unittest.TestCase):
         html = plot_mollier_hx_fast(data=df)
         self.assertNotIn("c.setData(", html)   # no points -> no setData call
 
+    def test_process_chain_with_labels(self):
+        s0 = state(t=5, phi=0.6, altitude=0, volume_flow=1000)
+        s1, _ = heat(s0, t_out=22)
+        html = plot_mollier_hx_fast(states=[s0, s1], labels=["Inlet", "Heat"])
+        self.assertIn("c.setProcessChain(", html)
+        self.assertIn("Inlet", html)
+        self.assertIn("Heat", html)
+
+    def test_process_chain_without_labels(self):
+        s0 = state(t=10, phi=0.5, altitude=0, volume_flow=1000)
+        s1, _ = heat(s0, t_out=24)
+        html = plot_mollier_hx_fast(states=[s0, s1])
+        self.assertIn("c.setProcessChain(", html)
+        self.assertIn('"label": "1"', html)   # falls back to the number
+
+    def test_data_with_gaps(self):
+        # A NaT timestamp (kept, no date) and a NaN humidity row (skipped).
+        df = pd.DataFrame({
+            "timestamp": [pd.Timestamp("2023-01-01"), pd.NaT, pd.Timestamp("2023-01-03")],
+            "humidity": [50.0, 60.0, np.nan],
+            "temperature": [20.0, 22.0, 21.0],
+        })
+        html = plot_mollier_hx_fast(data=df)
+        self.assertIn("c.setData(", html)
+        self.assertIn('"time": null', html)    # the NaT row carries no date
+
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
