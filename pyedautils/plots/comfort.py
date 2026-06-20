@@ -1826,6 +1826,9 @@ def plot_mollier_hx_fast(
     show_frequency: bool = False,
     frequency_unit: str = 'hours',
     frequency_smoothing: float = 4.0,
+    show_points: bool = True,
+    mean_enthalpy: bool = False,
+    mean_temperature: bool = False,
 ) -> str:
     """Stateful, fast variant of :func:`plot_mollier_hx`.
 
@@ -1836,10 +1839,19 @@ def plot_mollier_hx_fast(
     (``setData``, ``setComfort``, ``setFrequency`` ...) without re-rendering — the
     basis for fast, interactive dashboards.
 
-    Same inputs as :func:`plot_mollier_hx`. A few legend-only options
-    (``comfort_label``, ``highlight_latest``, ``highlight_color``,
-    ``season_labels``) are accepted for signature compatibility but not yet used
-    by the chart.
+    Same inputs as :func:`plot_mollier_hx`, plus:
+
+    Args:
+        show_points: Draw the measurement points. ``False`` keeps only the
+            frequency contour lines. Default ``True``.
+        mean_enthalpy: Draw the mean-enthalpy curve (h_m, binned by
+            temperature). Default ``False``.
+        mean_temperature: Draw the mean-temperature curve (t_m, binned by
+            enthalpy). Default ``False``.
+
+    A few legend-only options (``comfort_label``, ``highlight_latest``,
+    ``highlight_color``, ``season_labels``) are accepted for signature
+    compatibility but not yet used by the chart.
 
     Returns:
         str: Self-contained HTML (loads D3 from the CDN + an inline bundle).
@@ -1912,6 +1924,11 @@ def plot_mollier_hx_fast(
     calls.append("c.setBands(" + json.dumps(_band(comfort_zone_orange, '#E67E22'))
                  + "," + json.dumps(_band(comfort_zone_red, '#C0392B')) + ");")
     calls.append("c.setFrequency(" + json.dumps(freq) + ");")
+    if not show_points:
+        calls.append("c.setShowPoints(false);")
+    if mean_enthalpy or mean_temperature:
+        calls.append("c.setMeanLines(" + json.dumps(
+            {"h": bool(mean_enthalpy), "t": bool(mean_temperature)}) + ");")
     calls.append("window['" + cid + "']=c;")
 
     js = _load_d3_chart_js()

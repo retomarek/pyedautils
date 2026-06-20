@@ -1128,6 +1128,24 @@ class TestPlotMollierHxFast(unittest.TestCase):
         self.assertIn("c.setData(", html)
         self.assertIn('"time": null', html)    # the NaT row carries no date
 
+    def test_show_points_off(self):
+        html = plot_mollier_hx_fast(show_points=False)
+        self.assertIn("c.setShowPoints(false);", html)
+
+    def test_show_points_on_default(self):
+        html = plot_mollier_hx_fast()
+        self.assertNotIn("c.setShowPoints(", html)   # default true -> no call
+
+    def test_mean_lines(self):
+        html = plot_mollier_hx_fast(mean_enthalpy=True, mean_temperature=True)
+        self.assertIn("c.setMeanLines(", html)
+        self.assertIn('"h": true', html)
+        self.assertIn('"t": true', html)
+
+    def test_no_mean_lines_by_default(self):
+        html = plot_mollier_hx_fast()
+        self.assertNotIn("c.setMeanLines(", html)
+
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
