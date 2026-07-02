@@ -389,6 +389,53 @@ class TestComfortCompass(unittest.TestCase):
                       if getattr(t, "hovertext", None))
         self.assertIn("mittel", hov)                          # German stage name
 
+    def test_severity_lightness_planes(self):
+        # Severity must be readable from the shade alone: within every
+        # direction mild is the lightest and severe the darkest colour, and
+        # each stage sits on one shared lightness plane across all directions.
+        def luma(hexcol):
+            h = hexcol.lstrip("#")
+            r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        from pyedautils.plots.comfort import (_COMPASS_STAGE_COLORS,
+                                              _COMPASS_STAGE_GREYS)
+        for k, ramp in _COMPASS_STAGE_COLORS.items():
+            self.assertGreater(luma(ramp["l"]), luma(ramp["d"]), k)
+            self.assertGreater(luma(ramp["d"]), luma(ramp["s"]), k)
+        # every "mild" is lighter than every "severe", regardless of direction
+        min_mild = min(luma(r["l"]) for r in _COMPASS_STAGE_COLORS.values())
+        max_severe = max(luma(r["s"]) for r in _COMPASS_STAGE_COLORS.values())
+        self.assertGreater(min_mild, max_severe)
+        self.assertGreater(luma(_COMPASS_STAGE_GREYS["l"]),
+                           luma(_COMPASS_STAGE_GREYS["s"]))
+
+    def test_plot_severity_key_in_legend(self):
+        fig = plot_comfort_compass({"ok": 50, "f_l": 30, "w_d": 20})
+        legend = next(a for a in fig.layout.annotations if "●" in a.text)
+        for stage in ("mild", "moderate", "severe"):
+            self.assertIn(stage, legend.text)
+        # deviation rows carry the mild/moderate/severe split of their share
+        self.assertIn("(30% → 30/0/0%)", legend.text)   # f: all mild
+        self.assertIn("(20% → 0/20/0%)", legend.text)   # w: all moderate
+        self.assertNotIn("50% →", legend.text)          # "ok" row has no split
+        # no severity key when there is no deviation at all
+        clean = plot_comfort_compass({"ok": 50})
+        legend = next(a for a in clean.layout.annotations if "●" in a.text)
+        self.assertNotIn("severe", legend.text)
+
+    def test_plot_direction_labels_hug_glyph(self):
+        def label_radius(fig):
+            for t in fig.data:
+                if getattr(t, "mode", None) == "text" and len(t.r or []) == 8:
+                    return t.r[0]
+        # 100 % in range -> labels sit just outside the reference circle ...
+        near = label_radius(plot_comfort_compass({"ok": 100}))
+        # ... one dominant arm -> labels move out to the longest arm
+        far = label_radius(plot_comfort_compass({"ok": 5, "w_s": 95}))
+        self.assertLess(near, 1.5)
+        self.assertGreater(far, 2.0)
+        self.assertLess(near, far)
+
     def test_plot_centre_pct_threshold(self):
         def centre_pct(fig):
             for t in fig.data:
