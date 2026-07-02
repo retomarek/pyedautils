@@ -1373,6 +1373,7 @@ def plot_comfort_compass(
     direction_labels: Optional[List[str]] = None,
     names: Optional[Dict[str, str]] = None,
     stage_names: Optional[Dict[str, str]] = None,
+    fixed_scale: bool = True,
     height: int = 460,
 ) -> go.Figure:
     """Area-true "comfort compass" glyph for one room / group.
@@ -1391,9 +1392,13 @@ def plot_comfort_compass(
       stage. Orientation matches an h,x diagram: warm top, cold bottom, humid
       right, dry left; mixed directions blend the hues of their two poles.
     - Every glyph has the **same total area** (= 100 % of days) — only the
-      shape tells the story. The view zooms to the glyph's actual extent
-      (labels ring it just outside the longest arm), so the layout looks the
-      same whether the days concentrate in the centre or in one long arm.
+      shape tells the story. With ``fixed_scale`` (the default) the radial
+      axis is framed to the worst-case extent, so the dashed reference circle
+      is drawn at the **same size in every chart** and glyphs stay directly
+      comparable; the labels still ring the glyph's own longest arm. Set
+      ``fixed_scale=False`` to instead zoom to each glyph's actual extent (the
+      pre-*fixed_scale* behaviour), which fills the panel but makes the circle
+      — and thus the scale — differ from chart to chart.
 
     The percentages are listed in a donut-style bullet legend on the right —
     each deviation row shows the count, the total share and its
@@ -1423,6 +1428,11 @@ def plot_comfort_compass(
         stage_names: Optional mapping overriding the severity-stage names shown
             in the hover (keys ``"l"`` mild, ``"d"`` moderate, ``"s"`` severe).
             Default English; pass ``_COMPASS_STAGE_NAMES_DE`` for German.
+        fixed_scale: Keep the radial axis fixed to the worst-case extent so the
+            dashed 100 % reference circle is the same size in every chart,
+            keeping glyphs from different rooms/periods directly comparable.
+            Default ``True``. Set ``False`` to zoom to each glyph's own extent
+            (the circle then differs between charts).
         height: Figure height in pixels. Default 460.
 
     All visible texts are overridable for localisation (``title``,
@@ -1498,11 +1508,14 @@ def plot_comfort_compass(
     annotations = ([_compass_legend(d, leg_names, count_label, stage_name)]
                    if show_legend else [])
     polar_x = [0.0, 0.44] if show_legend else [0.06, 0.94]
-    # Zoom the radial axis to the labels instead of the worst-case extent, so
-    # the glyph fills its half of the figure and the visual distance to the
-    # labels and the legend stays about the same for any distribution. The
-    # 1.5 head factor leaves room for the outward-anchored label texts.
-    r_range = min(r_lab * 1.5, _COMPASS_RMAX * 1.15)
+    # Radial-axis range. With fixed_scale (default) we frame to the worst-case
+    # extent, so r=_COMPASS_R0 (the dashed reference circle) maps to the same
+    # screen radius in every chart and glyphs stay comparable. Otherwise we
+    # zoom to the labels so the glyph fills its half of the figure — the 1.5
+    # head factor leaves room for the outward-anchored label texts — at the
+    # cost of the reference circle differing from chart to chart.
+    r_range = (_COMPASS_RMAX * 1.15 if fixed_scale
+               else min(r_lab * 1.5, _COMPASS_RMAX * 1.15))
     title_text = None
     if title:
         title_text = f"<b>{title}</b>"

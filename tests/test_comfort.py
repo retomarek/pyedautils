@@ -436,6 +436,22 @@ class TestComfortCompass(unittest.TestCase):
         self.assertGreater(far, 2.0)
         self.assertLess(near, far)
 
+    def test_plot_fixed_scale_keeps_circle_size(self):
+        def r_range(fig):
+            return tuple(fig.layout.polar.radialaxis.range)
+        # fixed_scale (default): radial range is identical regardless of the
+        # distribution, so the dashed reference circle stays the same size and
+        # charts remain comparable.
+        small = r_range(plot_comfort_compass({"ok": 100}))
+        big = r_range(plot_comfort_compass({"ok": 5, "w_s": 95}))
+        self.assertEqual(small, big)
+        # fixed_scale=False: range zooms to each glyph, so a small glyph gets a
+        # tighter range than a long-armed one (circle differs between charts).
+        small_dyn = r_range(plot_comfort_compass({"ok": 100}, fixed_scale=False))
+        big_dyn = r_range(plot_comfort_compass({"ok": 5, "w_s": 95},
+                                               fixed_scale=False))
+        self.assertLess(small_dyn[1], big_dyn[1])
+
     def test_plot_centre_pct_threshold(self):
         def centre_pct(fig):
             for t in fig.data:
