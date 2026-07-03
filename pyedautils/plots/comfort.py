@@ -1374,6 +1374,7 @@ def plot_comfort_compass(
     names: Optional[Dict[str, str]] = None,
     stage_names: Optional[Dict[str, str]] = None,
     fixed_scale: bool = True,
+    stats_text: Optional[str] = None,
     height: int = 460,
 ) -> go.Figure:
     """Area-true "comfort compass" glyph for one room / group.
@@ -1433,6 +1434,10 @@ def plot_comfort_compass(
             keeping glyphs from different rooms/periods directly comparable.
             Default ``True``. Set ``False`` to zoom to each glyph's own extent
             (the circle then differs between charts).
+        stats_text: Optional extra text block (e.g. min/mean/max readings)
+            rendered left-aligned **below the legend** (``<br>`` for line
+            breaks, inline HTML spans allowed). With ``show_legend=False`` it
+            is drawn on its own in the legend column. Default *None* (off).
         height: Figure height in pixels. Default 460.
 
     All visible texts are overridable for localisation (``title``,
@@ -1507,6 +1512,19 @@ def plot_comfort_compass(
 
     annotations = ([_compass_legend(d, leg_names, count_label, stage_name)]
                    if show_legend else [])
+    if stats_text:
+        if annotations:
+            # Below the legend rows, left-aligned with them: the legend is one
+            # annotation, so appending keeps the block attached regardless of
+            # the legend's height.
+            annotations[0]["text"] += (
+                f"<br><br><span style='color:{_DONUT_MUTED}'>{stats_text}</span>")
+        else:
+            annotations.append(dict(
+                text=stats_text, x=0.53, y=0.5, xref="paper", yref="paper",
+                showarrow=False, xanchor="left", yanchor="middle", align="left",
+                font=dict(size=13, family=_DONUT_FONT, color=_DONUT_MUTED),
+            ))
     polar_x = [0.0, 0.44] if show_legend else [0.06, 0.94]
     # Radial-axis range. With fixed_scale (default) we frame to the worst-case
     # extent, so r=_COMPASS_R0 (the dashed reference circle) maps to the same

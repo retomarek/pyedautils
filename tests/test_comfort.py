@@ -389,6 +389,25 @@ class TestComfortCompass(unittest.TestCase):
                       if getattr(t, "hovertext", None))
         self.assertIn("mittel", hov)                          # German stage name
 
+    def test_plot_stats_text(self):
+        # with the legend on, the stats block is appended below the legend
+        # rows (same annotation, so it stays attached and left-aligned)
+        fig = plot_comfort_compass({"ok": 50, "f_l": 30, "w_d": 20},
+                                   stats_text="T min 18 / max 24 °C")
+        bullet = next(a for a in fig.layout.annotations if "●" in a.text)
+        self.assertIn("T min 18 / max 24 °C", bullet.text)
+        # without the legend it becomes its own left-aligned annotation
+        solo = plot_comfort_compass({"ok": 50, "f_l": 50}, show_legend=False,
+                                    stats_text="T min 18 / max 24 °C")
+        anns = [a for a in solo.layout.annotations
+                if "T min 18 / max 24 °C" in a.text]
+        self.assertEqual(len(anns), 1)
+        self.assertEqual(anns[0].xanchor, "left")
+        # off by default
+        plain = plot_comfort_compass({"ok": 50, "f_l": 50})
+        self.assertFalse(any("T min" in a.text
+                             for a in plain.layout.annotations))
+
     def test_severity_lightness_planes(self):
         # Severity must be readable from the shade alone: within every
         # direction mild is the lightest and severe the darkest colour, and
