@@ -408,6 +408,26 @@ class TestComfortCompass(unittest.TestCase):
         self.assertFalse(any("T min" in a.text
                              for a in plain.layout.annotations))
 
+    def test_plot_count_label_singular(self):
+        # a count of exactly 1 uses the singular word in legend and hover
+        fig = plot_comfort_compass({"ok": 1, "f_l": 30},
+                                   count_label="Tage",
+                                   count_label_singular="Tag")
+        bullet = next(a for a in fig.layout.annotations if "●" in a.text)
+        self.assertIn("<b>1</b> Tag ", bullet.text)
+        self.assertIn("<b>30</b> Tage ", bullet.text)
+        hov = "".join("".join(t.hovertext) for t in fig.data
+                      if getattr(t, "hovertext", None))
+        self.assertIn("1 Tag (", hov)
+        # without the singular word the plural label is always used
+        plain = plot_comfort_compass({"ok": 1, "f_l": 30}, count_label="Tage")
+        b2 = next(a for a in plain.layout.annotations if "●" in a.text)
+        self.assertIn("<b>1</b> Tage ", b2.text)
+        # title subtitle also switches for a total of exactly 1
+        one = plot_comfort_compass({"ok": 1}, title="R", count_label="Tage",
+                                   count_label_singular="Tag")
+        self.assertIn("1 Tag<", one.layout.title.text)
+
     def test_severity_lightness_planes(self):
         # Severity must be readable from the shade alone: within every
         # direction mild is the lightest and severe the darkest colour, and

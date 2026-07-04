@@ -1296,17 +1296,25 @@ _COMPASS_LABELS_DE = ["zu feucht", "warm +<br>feucht", "zu warm",
 _COMPASS_STAGE_NAMES_DE = {"l": "leicht", "d": "mittel", "s": "stark"}
 
 
-def _compass_legend(d, names, count_label, stage_names) -> dict:
+def _compass_legend(d, names, count_label, stage_names,
+                    count_label_singular=None) -> dict:
     """Donut-style bullet legend: 'in range' first, then the deviation
     directions present, sorted by count (biggest first). Each row shows the
     count and its share, lower-cased like the donut legend. If any deviation
     is present, a severity key (grey swatches on the three stage lightness
-    planes, light -> dark) is appended below the rows."""
+    planes, light -> dark) is appended below the rows. With
+    *count_label_singular* a count of exactly 1 uses the singular word
+    (e.g. "1 Tag" instead of "1 Tage")."""
     total = sum(float(v) for v in d.values())
     g = lambda k: float(d.get(k, 0.0))
 
     def pct(cnt):
         return f"{cnt / total * 100:.0f}" if total else "0"
+
+    def unit(cnt):
+        if int(round(cnt)) == 1 and count_label_singular:
+            return count_label_singular
+        return count_label
 
     rows = [("ok", g("ok"), _COMPASS_OK, None)]
     deviations = []
@@ -1322,7 +1330,7 @@ def _compass_legend(d, names, count_label, stage_names) -> dict:
         share = f"{pct(cnt)}%" if split is None else f"{pct(cnt)}% → {split}%"
         lines.append(
             f"<span style='color:{col}'>●</span>  {names[k]} — "
-            f"<b>{int(round(cnt))}</b> {count_label} "
+            f"<b>{int(round(cnt))}</b> {unit(cnt)} "
             f"<span style='color:{_DONUT_MUTED}'>({share})</span>"
         )
     if deviations:
@@ -1375,6 +1383,7 @@ def plot_comfort_compass(
     stage_names: Optional[Dict[str, str]] = None,
     fixed_scale: bool = True,
     stats_text: Optional[str] = None,
+    count_label_singular: Optional[str] = None,
     height: int = 460,
 ) -> go.Figure:
     """Area-true "comfort compass" glyph for one room / group.
@@ -1438,6 +1447,10 @@ def plot_comfort_compass(
             rendered left-aligned **below the legend** (``<br>`` for line
             breaks, inline HTML spans allowed). With ``show_legend=False`` it
             is drawn on its own in the legend column. Default *None* (off).
+        count_label_singular: Optional singular unit word used in the legend,
+            hover and title subtitle when a count is exactly 1 (e.g. pass
+            ``count_label="Tage", count_label_singular="Tag"`` for German).
+            Default *None* (always use ``count_label``).
         height: Figure height in pixels. Default 460.
 
     All visible texts are overridable for localisation (``title``,
@@ -1458,9 +1471,14 @@ def plot_comfort_compass(
 
     stage_name = {**_COMPASS_STAGE_NAMES, **(stage_names or {})}
 
+    def _unit(cnt):
+        if int(round(cnt)) == 1 and count_label_singular:
+            return count_label_singular
+        return count_label
+
     def _hov(name, cnt):
         pct = cnt / total * 100 if total else 0.0
-        return (f"<b>{name}</b><br>{int(round(cnt))} {count_label} "
+        return (f"<b>{name}</b><br>{int(round(cnt))} {_unit(cnt)} "
                 f"({pct:.0f}%)")
 
     th, rr, base, wid, col, hov, r_max = _compass_wedges(
@@ -1510,7 +1528,8 @@ def plot_comfort_compass(
             textfont=dict(size=11, color=lab_cols, family=_DONUT_FONT),
             hoverinfo="skip", showlegend=False))
 
-    annotations = ([_compass_legend(d, leg_names, count_label, stage_name)]
+    annotations = ([_compass_legend(d, leg_names, count_label, stage_name,
+                                    count_label_singular)]
                    if show_legend else [])
     if stats_text:
         if annotations:
@@ -1540,7 +1559,7 @@ def plot_comfort_compass(
         if total:
             title_text += (f"<br><span style='font-size:12px;color:"
                            f"{_DONUT_MUTED}'>{int(round(total))} "
-                           f"{count_label}</span>")
+                           f"{_unit(total)}</span>")
     fig.update_layout(
         title_text=title_text,
         title_font=dict(size=20, family=_DONUT_FONT), title_x=0.5,
