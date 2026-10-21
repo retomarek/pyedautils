@@ -9,6 +9,9 @@ chapters:
       - file: api/data_io
       - file: api/data_quality
       - file: api/comfort
+      - file: api/psychrometrics
+      - file: api/energy_signature
+      - file: api/units
       - file: api/geopy
       - file: api/plots
       - file: api/data_prep

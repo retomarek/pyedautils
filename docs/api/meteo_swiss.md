@@ -1,6 +1,7 @@
 # meteo_swiss
 
-Find the nearest MeteoSwiss automatic weather station for a given location and sensor type.
+Current measurements of all MeteoSwiss automatic weather stations, and the
+nearest station for a given location and sensor type.
 
 See {doc}`../examples/meteo_swiss` for usage examples.
 
