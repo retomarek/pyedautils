@@ -1,8 +1,20 @@
 # -*- coding: utf-8 -*-
 
+"""MeteoSwiss station lookup and Open Government Data (OGD) downloads.
+
+Daily SwissMetNet values (collection ``ch.meteoschweiz.ogd-smn``) are
+available per station as ``historical`` and ``recent`` CSV files. When
+reproducing or redistributing the data the source must be cited as
+"Source: MeteoSwiss".
+"""
+
+import io
 import logging
+from typing import Sequence
 
 import pandas as pd
+import requests
+
 from pyedautils.geopy import get_distance_between_two_points
 
 logger = logging.getLogger(__name__)
@@ -91,3 +103,106 @@ def find_nearest_station(lat: float, long: float, altitude: float, sensor: str) 
 
     except Exception as e:
         raise ValueError(f"Error in getting data: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Open Government Data (SwissMetNet daily values)
+# ---------------------------------------------------------------------------
+#: Base URL of the SwissMetNet OGD files.
+SMN_BASE_URL = "https://data.geo.admin.ch/ch.meteoschweiz.ogd-smn"
+#: STAC collection of the SwissMetNet OGD files (lists the per-station assets).
+SMN_STAC_URL = "https://data.geo.admin.ch/api/stac/v1/collections/ch.meteoschweiz.ogd-smn"
+#: Daily parameter codes: mean air temperature 2 m [°C], global radiation [W/m²].
+SMN_DAILY_PARAMS = ("tre200d0", "gre000d0")
+
+
+def _get_text(url: str, timeout: int) -> str:
+    response = requests.get(url, timeout=timeout)
+    response.raise_for_status()
+    try:
+        return response.content.decode("utf-8")
+    except UnicodeDecodeError:
+        return response.content.decode("cp1252")
+
+
+def get_smn_stations(timeout: int = 60) -> pd.DataFrame:
+    """
+    Gets the SwissMetNet station list of the MeteoSwiss OGD.
+
+    Args:
+        timeout (int): Request timeout in seconds. Default 60.
+
+    Returns:
+        pd.DataFrame: Station metadata (``station_abbr``, ``station_name``,
+        coordinates, altitude, ...).
+    """
+    try:
+        text = _get_text(f"{SMN_BASE_URL}/ogd-smn_meta_stations.csv", timeout)
+        return pd.read_csv(io.StringIO(text), sep=";")
+    except Exception as e:
+        raise ValueError(f"Error in getting station list: {e}") from e
+
+
+def _daily_asset_urls(station: str, timeout: int) -> list:
+    item = requests.get(f"{SMN_STAC_URL}/items/{station.lower()}", timeout=timeout)
+    item.raise_for_status()
+    assets = item.json().get("assets", {})
+    urls = [a["href"] for key, a in assets.items() if "_d_" in key and key.endswith(".csv")]
+    if not urls:
+        raise ValueError(f"No daily OGD files found for station {station!r}")
+    return sorted(urls)
+
+
+def _read_smn_csv(text: str) -> pd.DataFrame:
+    df = pd.read_csv(io.StringIO(text), sep=";")
+    ts = pd.to_datetime(df["reference_timestamp"], format="%d.%m.%Y %H:%M")
+    return df.drop(columns=["reference_timestamp", "station_abbr"], errors="ignore").set_index(ts)
+
+
+def download_daily(
+    station: str,
+    start_date: str,
+    end_date: str,
+    params: Sequence[str] = SMN_DAILY_PARAMS,
+    timeout: int = 60,
+) -> pd.DataFrame:
+    """
+    Downloads daily SwissMetNet values of a station from the MeteoSwiss OGD.
+
+    Combines the ``historical`` and ``recent`` files of the station. Use
+    the result as long temperature series for
+    :func:`pyedautils.degree_days.reference_degree_days`.
+    Source: MeteoSwiss.
+
+    Args:
+        station (str): Station abbreviation, e.g. ``"KLO"`` (Zürich-Kloten);
+            see :func:`get_smn_stations`.
+        start_date (str): First day, ``'YYYY-MM-DD'``.
+        end_date (str): Last day (inclusive), ``'YYYY-MM-DD'``.
+        params (Sequence[str]): Daily parameter codes to keep. Default
+            ``("tre200d0", "gre000d0")``: mean air temperature 2 m [°C]
+            and global radiation daily mean [W/m²].
+        timeout (int): Request timeout in seconds. Default 60.
+
+    Returns:
+        pd.DataFrame: Daily values indexed by ``datetime`` with one column
+        per parameter (missing parameters are skipped with a warning).
+    """
+    try:
+        urls = _daily_asset_urls(station, timeout)
+        frames = [_read_smn_csv(_get_text(url, timeout)) for url in urls]
+    except Exception as e:
+        raise ValueError(f"Error downloading MeteoSwiss daily data: {e}") from e
+
+    df = pd.concat(frames).sort_index()
+    df = df[~df.index.duplicated(keep="last")]
+    df.index.name = "datetime"
+    missing = [p for p in params if p not in df.columns]
+    if missing:
+        logger.warning("Parameters %s not available for station %s", missing, station)
+    keep = [p for p in params if p in df.columns]
+    if not keep:
+        raise ValueError(f"None of the parameters {list(params)} available for station {station!r}")
+    df = df.loc[pd.Timestamp(start_date):pd.Timestamp(end_date), keep].apply(pd.to_numeric, errors="coerce")
+    logger.info("Downloaded %d daily rows for station %s", len(df), station)
+    return df

@@ -8,3 +8,4 @@ from pyedautils.plots.comfort import *  # noqa: F401,F403
 from pyedautils.plots.stat import *  # noqa: F401,F403
 from pyedautils.plots.gradients import *  # noqa: F401,F403
 from pyedautils.plots.solar import *  # noqa: F401,F403
+from pyedautils.plots.degree_days import *  # noqa: F401,F403

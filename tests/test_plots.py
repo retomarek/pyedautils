@@ -756,3 +756,48 @@ class TestPlotDecompositionAutoDetect(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
+
+
+@patch('pyedautils.data_prep.season.get_season', side_effect=_fast_get_season)
+class TestDegreeDayPlots(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        from pyedautils.degree_days import heating_degree_days
+        idx = pd.date_range("2023-01-01", periods=365, freq="D")
+        cls.temp = pd.Series(np.linspace(-5, 25, 365), index=idx)
+        cls.energy = 50.0 + 3.0 * (12.0 - cls.temp).clip(lower=0)
+        cls.monthly = heating_degree_days(cls.temp)
+
+    def test_plot_degree_days(self, mock_season):
+        from pyedautils.plots import plot_degree_days
+        fig = plot_degree_days(self.monthly)
+        self.assertEqual(len(fig.data), 1)
+        self.assertEqual(fig.data[0].type, "bar")
+        ref = pd.Series(300.0, index=range(1, 13))
+        fig = plot_degree_days(self.monthly, reference=ref)
+        self.assertEqual(len(fig.data), 2)
+        self.assertEqual(fig.data[1].name, "Reference")
+        fig = plot_degree_days(self.monthly["hgt"])
+        self.assertEqual(len(fig.data), 1)
+
+    def test_plot_degree_days_invalid(self, mock_season):
+        from pyedautils.plots import plot_degree_days
+        with self.assertRaises(ValueError):
+            plot_degree_days(pd.DataFrame({"x": [1.0]}, index=pd.to_datetime(["2023-01-01"])))
+
+    def test_plot_degree_day_regression_daily(self, mock_season):
+        from pyedautils.plots import plot_degree_day_regression
+        fig = plot_degree_day_regression(self.energy, self.temp, base=12.0)
+        names = [t.name for t in fig.data]
+        self.assertIn("Regression", names)
+        self.assertGreaterEqual(len(fig.data), 3)
+        texts = " ".join(a.text for a in fig.layout.annotations)
+        self.assertIn("T<sub>b</sub>", texts)
+        self.assertIn("slope", texts)
+
+    def test_plot_degree_day_regression_monthly(self, mock_season):
+        from pyedautils.plots import plot_degree_day_regression
+        fig = plot_degree_day_regression(self.energy.resample("MS").sum(), self.temp, base=12.0, freq="MS")
+        self.assertEqual(len(fig.data), 2)
+        self.assertEqual(fig.data[0].name, "Months")

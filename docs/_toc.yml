@@ -12,6 +12,7 @@ chapters:
       - file: api/psychrometrics
       - file: api/energy_signature
       - file: api/units
+      - file: api/degree_days
       - file: api/geopy
       - file: api/plots
       - file: api/data_prep
@@ -25,6 +26,7 @@ chapters:
         sections:
           - file: api/meteo_swiss
           - file: api/agroweather
+          - file: api/open_data_ch
 
   - file: examples/index
     sections:
@@ -45,6 +47,7 @@ chapters:
           - file: examples/comfort
           - file: examples/gradients
           - file: examples/solar_influence
+          - file: examples/degree_days
       - file: examples/data_prep
         sections:
           - file: examples/season
@@ -53,3 +56,4 @@ chapters:
         sections:
           - file: examples/meteo_swiss
           - file: examples/agroweather
+          - file: examples/open_data_ch

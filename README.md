@@ -17,7 +17,9 @@ A pip-installable library of compact utility functions for analyzing and visuali
 - **Geocoding** — Address geocoding, WGS84/LV95 conversion, altitude lookup, Swiss postal codes, Haversine distance
 - **Season detection** — Astronomical or meteorological season classification for any date
 - **Solar position** — Sun elevation and azimuth for a location and time (single timestamp or vectorized over a pandas Series/DatetimeIndex)
-- **MeteoSwiss** — Find nearest weather station by sensor type and altitude
+- **Degree days / climate correction** — Swiss HGT 20/12, ATD (SIA 380), CDD, reference climatology, SIA-380-style normalization, fixed-base degree-day regression (ASHRAE G14 metrics), BFE GT&S method
+- **MeteoSwiss** — Find nearest weather station by sensor type and altitude; download daily Open Government Data values
+- **Swiss open data** — Monthly degree-day series of the BFE and the Stadt Zürich
 
 ## Installation
 

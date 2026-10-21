@@ -39,3 +39,36 @@ df = get_current_station_data()
 print(f"{len(df)} stations found")
 print(df[["Abk.", "Station", "Stationshöhe m ü. M."]].head())
 ```
+
+## Download daily values (Open Government Data)
+
+Daily SwissMetNet values per station, combined from the `historical` and
+`recent` OGD files. Default parameters: `tre200d0` (daily mean air
+temperature 2 m, °C) and `gre000d0` (global radiation daily mean, W/m²).
+Cite as "Source: MeteoSwiss" when reproducing the data.
+
+```python
+from pyedautils.weather.meteo_swiss import get_smn_stations, download_daily
+
+stations = get_smn_stations()
+print(stations[["station_abbr", "station_name", "station_height_masl"]].head())
+
+klo = download_daily("KLO", "2023-01-01", "2023-12-31")
+print(klo.head(3))
+#             tre200d0  gre000d0
+# datetime
+# 2023-01-01      11.5      64.0
+# 2023-01-02       7.9      45.0
+# 2023-01-03       7.5      42.0
+```
+
+Long series are the input for a station-specific degree-day climatology,
+see {doc}`../api/degree_days`:
+
+```python
+from pyedautils.degree_days import reference_degree_days
+
+klo_long = download_daily("KLO", "1991-01-01", "2020-12-31")
+ref = reference_degree_days(klo_long["tre200d0"], period=("1991", "2020"))
+print(ref.annual, ref.n_years)
+```

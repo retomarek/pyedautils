@@ -16,3 +16,4 @@ Interactive plot examples:
 - {doc}`comfort` — Comfort plots: SIA 180 thermal comfort, comfort donuts, overheating bar, temperature vs humidity (Plotly)
 - {doc}`gradients` — Heating/cooling gradient boxplots by season (Plotly)
 - {doc}`solar_influence` — Dual-axis room temperature vs global radiation (Plotly)
+- {doc}`degree_days` — Heating degree days vs reference, climate correction, degree-day regression, GT&S method (Plotly)

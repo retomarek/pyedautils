@@ -67,6 +67,15 @@ See the {doc}`../examples/index` section for interactive usage examples.
    :show-inheritance:
 ```
 
+## Degree Days
+
+```{eval-rst}
+.. automodule:: pyedautils.plots.degree_days
+   :members:
+   :undoc-members:
+   :show-inheritance:
+```
+
 ## Solar Influence
 
 ```{eval-rst}
