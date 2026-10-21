@@ -7,4 +7,4 @@ Usage examples for all pyedautils modules. See {doc}`../api/index` for the full 
 - {doc}`geopy` — Geocoding, coordinate conversion, altitude lookup
 - {doc}`plots` — Visualizations (daily profiles, heatmaps, energy signature, seasonal, comfort and Mollier h,x-diagram, statistics, gradients, solar influence, degree days)
 - {doc}`data_prep` — Data preprocessing (season, sun position, gradients, solar influence)
-- {doc}`weather` — Swiss weather data (MeteoSwiss stations, current and daily OGD data, Agrometeo.ch downloads, BFE / Stadt Zürich degree days)
+- {doc}`weather` — Swiss weather data (MeteoSwiss stations, current measurements, historical 10-min/hourly/daily OGD data, Agrometeo.ch downloads, BFE / Stadt Zürich degree days)

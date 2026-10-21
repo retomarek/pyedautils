@@ -4,7 +4,14 @@ import unittest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from pyedautils.weather.meteo_swiss import get_current_station_data, find_nearest_station
+from pyedautils.weather.meteo_swiss import (
+    get_current_station_data,
+    find_nearest_station,
+    download_data,
+    download_data_by_plz,
+    get_smn_stations,
+    _select_files,
+)
 
 
 MOCK_STATION_DATA = pd.DataFrame({
@@ -92,11 +99,153 @@ class TestFindNearestStation(unittest.TestCase):
             find_nearest_station(47.01, 8.30, 2000, sensor="temp")
 
 
-if __name__ == '__main__':
-    unittest.main()  # pragma: no cover
+STAC_ASSETS = {
+    "assets": {
+        f"ogd-smn_klo_h_{kind}.csv": {"href": f"https://example.org/ogd-smn_klo_h_{kind}.csv"}
+        for kind in ["historical_2010-2019", "historical_2020-2029", "recent", "now"]
+    }
+}
 
 
-MOCK_STAC_ITEM = {
+def _mock_response(status_code=200, json_data=None):
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = json_data
+    response.raise_for_status.return_value = None
+    return response
+
+
+def _mock_csv(url, **kwargs):
+    if "historical_2020" in url:
+        timestamps = ["31.12.2025 22:00", "31.12.2025 23:00"]
+    elif "recent" in url:
+        timestamps = ["01.01.2026 00:00", "01.01.2026 01:00"]
+    else:
+        timestamps = ["01.01.2026 01:00", "01.01.2026 02:00"]
+    data = pd.DataFrame({
+        "station_abbr": "KLO",
+        "reference_timestamp": timestamps,
+        "tre200h0": [1.0, 2.0],
+        "gre000h0": [0, 5],
+        "ure200h0": [80.0, 81.0],
+        "rre150h0": [0.0, 0.2],
+    })
+    return data[[c for c in data.columns if kwargs["usecols"](c)]]
+
+
+class TestSelectFiles(unittest.TestCase):
+
+    FILES = {
+        "x_h_historical_2010-2019.csv": "u2010",
+        "x_h_historical_2020-2029.csv": "u2020",
+        "x_h_recent.csv": "urecent",
+        "x_h_now.csv": "unow",
+        "x_d_historical.csv": "ud",
+        "x_d_recent.csv": "udrecent",
+        "x_m.csv": "um",
+    }
+    TODAY = pd.Timestamp("2026-10-22")
+
+    def test_historical_only(self):
+        urls = _select_files(self.FILES, "h", pd.Timestamp("2019-06-01"), pd.Timestamp("2020-02-01"), self.TODAY)
+        self.assertEqual(urls, ["u2010", "u2020"])
+
+    def test_historical_recent_now(self):
+        urls = _select_files(self.FILES, "h", pd.Timestamp("2025-12-01"), pd.Timestamp("2026-10-23"), self.TODAY)
+        self.assertEqual(urls, ["u2020", "urecent", "unow"])
+
+    def test_daily_single_historical_file(self):
+        urls = _select_files(self.FILES, "d", pd.Timestamp("2000-01-01"), pd.Timestamp("2001-01-01"), self.TODAY)
+        self.assertEqual(urls, ["ud"])
+
+
+NOW = pd.Timestamp("2026-01-02 10:00", tz="UTC")
+
+
+class TestDownloadData(unittest.TestCase):
+
+    @patch('pyedautils.weather.meteo_swiss.pd.Timestamp.now', return_value=NOW)
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv', side_effect=_mock_csv)
+    @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(json_data=STAC_ASSETS))
+    def test_combines_files(self, mock_get, mock_read_csv, mock_now):
+        df = download_data("KLO", "2025-12-31", "2026-01-02")
+        self.assertEqual(list(df.columns), ["temp", "globrad", "relhum", "rain"])
+        self.assertEqual(len(df), 5)  # duplicate 01:00 from recent/now removed
+        self.assertTrue(df.index.is_monotonic_increasing)
+        self.assertEqual(str(df.index.tz), "UTC")
+        self.assertEqual(mock_read_csv.call_count, 3)
+
+    @patch('pyedautils.weather.meteo_swiss.pd.Timestamp.now', return_value=NOW)
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv', side_effect=_mock_csv)
+    @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(json_data=STAC_ASSETS))
+    def test_filters_range_and_converts_tz(self, mock_get, mock_read_csv, mock_now):
+        df = download_data("KLO", "2026-01-01", "2026-01-01", sensors=["temp", "rre150h0"], tz="Europe/Zurich")
+        self.assertEqual(list(df.columns), ["temp", "rre150h0"])
+        # 2026-01-01 local = 2025-12-31 23:00 UTC .. 2026-01-01 23:00 UTC
+        self.assertEqual(len(df), 4)
+        self.assertEqual(df.index[0], pd.Timestamp("2026-01-01 00:00", tz="Europe/Zurich"))
+
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv', side_effect=_mock_csv)
+    @patch('pyedautils.weather.meteo_swiss.requests.get')
+    def test_falls_back_to_precip_collection(self, mock_get, mock_read_csv):
+        mock_get.side_effect = [_mock_response(status_code=404), _mock_response(json_data=STAC_ASSETS)]
+        df = download_data("ABE", "2019-01-01", "2019-12-31", sensors=["rain"])
+        self.assertIn("ch.meteoschweiz.ogd-smn-precip/items/abe", mock_get.call_args_list[1].args[0])
+        self.assertTrue(df.empty)
+        self.assertEqual(list(df.columns), ["rain"])
+
+    @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(status_code=404))
+    def test_unknown_station(self, mock_get):
+        with self.assertRaises(ValueError):
+            download_data("XXX", "2025-01-01", "2025-01-02")
+
+    @patch('pyedautils.weather.meteo_swiss.requests.get', side_effect=Exception("Network error"))
+    def test_network_error(self, mock_get):
+        with self.assertRaises(ValueError):
+            download_data("KLO", "2025-01-01", "2025-01-02")
+
+    def test_invalid_sensor(self):
+        with self.assertRaises(ValueError):
+            download_data("KLO", "2025-01-01", "2025-01-02", sensors=["windspeed"])
+
+    def test_invalid_granularity(self):
+        with self.assertRaises(ValueError):
+            download_data("KLO", "2025-01-01", "2025-01-02", granularity="m")
+
+    def test_end_before_start(self):
+        with self.assertRaises(ValueError):
+            download_data("KLO", "2025-01-02", "2025-01-01")
+
+
+class TestDownloadDataByPlz(unittest.TestCase):
+
+    @patch('pyedautils.weather.meteo_swiss.download_data')
+    @patch('pyedautils.weather.meteo_swiss.find_nearest_station')
+    @patch('pyedautils.weather.meteo_swiss.get_altitude_lat_long', return_value=450.0)
+    @patch('pyedautils.weather.meteo_swiss.get_coordindates_ch_plz', return_value=(47.01, 8.30))
+    def test_groups_sensors_by_station(self, mock_plz, mock_alt, mock_find, mock_download):
+        mock_find.side_effect = lambda lat, lon, alt, sensor: "BAN" if sensor == "globrad" else "LUZ"
+        index = pd.date_range("2025-07-01", periods=2, freq="h", tz="UTC", name="datetime")
+        mock_download.side_effect = lambda station, *args, sensors, **kwargs: pd.DataFrame(
+            {s: [1.0, 2.0] for s in sensors}, index=index)
+
+        df = download_data_by_plz(6048, "2025-07-01", "2025-07-01")
+        self.assertEqual(list(df.columns), ["temp", "globrad", "relhum", "rain"])
+        self.assertEqual(mock_download.call_count, 2)
+        mock_find.assert_any_call(47.01, 8.30, 450.0, sensor="temp")
+
+    @patch('pyedautils.weather.meteo_swiss.download_data')
+    @patch('pyedautils.weather.meteo_swiss.find_nearest_station', return_value="LUZ")
+    @patch('pyedautils.weather.meteo_swiss.get_altitude_lat_long')
+    @patch('pyedautils.weather.meteo_swiss.get_coordindates_ch_plz', return_value=(47.01, 8.30))
+    def test_explicit_altitude(self, mock_plz, mock_alt, mock_find, mock_download):
+        mock_download.return_value = pd.DataFrame({"temp": [1.0]})
+        download_data_by_plz(6048, "2025-07-01", "2025-07-01", sensors=["temp"], altitude=1000)
+        mock_alt.assert_not_called()
+        mock_find.assert_called_once_with(47.01, 8.30, 1000, sensor="temp")
+
+
+DAILY_STAC_ASSETS = {
     "assets": {
         "ogd-smn_klo_d_historical.csv": {"href": "https://example.org/klo/ogd-smn_klo_d_historical.csv"},
         "ogd-smn_klo_d_recent.csv": {"href": "https://example.org/klo/ogd-smn_klo_d_recent.csv"},
@@ -104,91 +253,71 @@ MOCK_STAC_ITEM = {
     }
 }
 
-MOCK_HISTORICAL_CSV = (
-    "station_abbr;reference_timestamp;tre200d0;gre000d0;ure200d0\n"
-    "KLO;30.12.2022 00:00;1.5;20;80\n"
-    "KLO;31.12.2022 00:00;2.5;25;81\n"
-    "KLO;01.01.2023 00:00;3.5;30;82\n"
-)
-
-MOCK_RECENT_CSV = (
-    "station_abbr;reference_timestamp;tre200d0;gre000d0;ure200d0\n"
-    "KLO;01.01.2023 00:00;3.6;31;82\n"
-    "KLO;02.01.2023 00:00;4.5;40;83\n"
-    "KLO;03.01.2023 00:00;;45;84\n"
-)
+MOCK_DAILY = {
+    "historical": pd.DataFrame({
+        "reference_timestamp": ["30.12.2022 00:00", "31.12.2022 00:00", "01.01.2023 00:00"],
+        "tre200d0": [1.5, 2.5, 3.5],
+        "gre000d0": [20, 25, 30],
+    }),
+    "recent": pd.DataFrame({
+        "reference_timestamp": ["01.01.2023 00:00", "02.01.2023 00:00", "03.01.2023 00:00"],
+        "tre200d0": [3.6, 4.5, None],
+        "gre000d0": [31, 40, 45],
+    }),
+}
 
 MOCK_STATIONS_CSV = "station_abbr;station_name;station_height_masl\nKLO;Zürich / Kloten;426\n"
 
 
-def _ogd_get(url, timeout=60):
-    from pyedautils.weather.meteo_swiss import SMN_STAC_URL
-    response = MagicMock()
-    response.raise_for_status.return_value = None
-    if url.startswith(SMN_STAC_URL):
-        response.json.return_value = MOCK_STAC_ITEM
-    elif url.endswith("_historical.csv"):
-        response.content = MOCK_HISTORICAL_CSV.encode("utf-8")
-    elif url.endswith("_recent.csv"):
-        response.content = MOCK_RECENT_CSV.encode("utf-8")
-    elif url.endswith("meta_stations.csv"):
-        response.content = MOCK_STATIONS_CSV.encode("cp1252")
-    else:
-        raise AssertionError(f"unexpected url {url}")
-    return response
+def _mock_daily_csv(url, **kwargs):
+    data = MOCK_DAILY["historical" if "historical" in url else "recent"]
+    return data[[c for c in data.columns if kwargs["usecols"](c)]]
 
 
-class TestOgdDownloads(unittest.TestCase):
+class TestDownloadDataDaily(unittest.TestCase):
 
-    @patch('pyedautils.weather.meteo_swiss.requests.get', side_effect=_ogd_get)
+    @patch('pyedautils.weather.meteo_swiss.pd.Timestamp.now', return_value=pd.Timestamp("2023-01-05", tz="UTC"))
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv', side_effect=_mock_daily_csv)
+    @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(json_data=DAILY_STAC_ASSETS))
+    def test_daily_values(self, mock_get, mock_read_csv, mock_now):
+        df = download_data("KLO", "2022-12-31", "2023-01-03", granularity="d",
+                           sensors=["temp", "globrad"], tz="Europe/Zurich")
+        self.assertListEqual(list(df.columns), ["temp", "globrad"])
+        self.assertEqual(len(df), 4)
+        self.assertIsNone(df.index.tz)  # daily values: tz-naive dates, tz ignored
+        self.assertEqual(df.index[0], pd.Timestamp("2022-12-31"))
+        # overlap resolved in favour of the recent file
+        self.assertAlmostEqual(df.loc["2023-01-01", "temp"], 3.6)
+        self.assertTrue(pd.isna(df.loc["2023-01-03", "temp"]))
+        # only daily files are read
+        self.assertEqual(mock_read_csv.call_count, 2)
+
+    @patch('pyedautils.weather.meteo_swiss.pd.Timestamp.now', return_value=pd.Timestamp("2023-01-05", tz="UTC"))
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv', side_effect=_mock_daily_csv)
+    @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(json_data=DAILY_STAC_ASSETS))
+    def test_missing_param_warns(self, mock_get, mock_read_csv, mock_now):
+        with self.assertLogs("pyedautils.weather.meteo_swiss", level="WARNING"):
+            df = download_data("KLO", "2023-01-01", "2023-01-02", granularity="d", sensors=["temp", "xyz00000"])
+        self.assertTrue(df["xyz00000"].isna().all())
+
+
+class TestGetSmnStations(unittest.TestCase):
+
+    @patch('pyedautils.weather.meteo_swiss.requests.get')
     def test_get_smn_stations(self, mock_get):
-        from pyedautils.weather.meteo_swiss import get_smn_stations
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.content = MOCK_STATIONS_CSV.encode("cp1252")
+        mock_get.return_value = response
         df = get_smn_stations()
         self.assertEqual(df.loc[0, "station_abbr"], "KLO")
         self.assertEqual(df.loc[0, "station_name"], "Zürich / Kloten")
 
-    @patch('pyedautils.weather.meteo_swiss.requests.get', side_effect=_ogd_get)
-    def test_download_daily(self, mock_get):
-        from pyedautils.weather.meteo_swiss import download_daily
-        df = download_daily("KLO", "2022-12-31", "2023-01-03")
-        self.assertListEqual(list(df.columns), ["tre200d0", "gre000d0"])
-        self.assertEqual(len(df), 4)
-        self.assertEqual(df.index.name, "datetime")
-        # overlap resolved in favour of the recent file
-        self.assertAlmostEqual(df.loc["2023-01-01", "tre200d0"], 3.6)
-        self.assertTrue(pd.isna(df.loc["2023-01-03", "tre200d0"]))
-        # only daily assets are fetched: STAC item + 2 CSV files
-        self.assertEqual(mock_get.call_count, 3)
-
-    @patch('pyedautils.weather.meteo_swiss.requests.get', side_effect=_ogd_get)
-    def test_download_daily_missing_param(self, mock_get):
-        from pyedautils.weather.meteo_swiss import download_daily
-        with self.assertLogs("pyedautils.weather.meteo_swiss", level="WARNING"):
-            df = download_daily("KLO", "2023-01-01", "2023-01-02", params=("tre200d0", "xyz"))
-        self.assertListEqual(list(df.columns), ["tre200d0"])
-        with self.assertRaises(ValueError):
-            download_daily("KLO", "2023-01-01", "2023-01-02", params=("xyz",))
-
-    @patch('pyedautils.weather.meteo_swiss.requests.get')
-    def test_download_daily_network_error(self, mock_get):
-        from pyedautils.weather.meteo_swiss import download_daily
-        mock_get.side_effect = Exception("Network error")
-        with self.assertRaises(ValueError):
-            download_daily("KLO", "2023-01-01", "2023-01-02")
-
-    @patch('pyedautils.weather.meteo_swiss.requests.get')
+    @patch('pyedautils.weather.meteo_swiss.requests.get', side_effect=Exception("Network error"))
     def test_get_smn_stations_network_error(self, mock_get):
-        from pyedautils.weather.meteo_swiss import get_smn_stations
-        mock_get.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
             get_smn_stations()
 
-    @patch('pyedautils.weather.meteo_swiss.requests.get')
-    def test_download_daily_no_daily_assets(self, mock_get):
-        from pyedautils.weather.meteo_swiss import download_daily
-        response = MagicMock()
-        response.raise_for_status.return_value = None
-        response.json.return_value = {"assets": {"ogd-smn_klo_h_recent.csv": {"href": "x"}}}
-        mock_get.return_value = response
-        with self.assertRaisesRegex(ValueError, "No daily OGD files"):
-            download_daily("KLO", "2023-01-01", "2023-01-02")
+
+if __name__ == '__main__':
+    unittest.main()  # pragma: no cover

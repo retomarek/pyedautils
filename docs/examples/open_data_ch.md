@@ -50,11 +50,11 @@ print(round(hgt_season), round(e_norm))  # 2830 95858  (season was ~14 % milder 
 ## Daily MeteoSwiss values for a station-specific reference
 
 ```python
-from pyedautils.weather import download_daily
+from pyedautils.weather.meteo_swiss import download_data
 from pyedautils.degree_days import reference_degree_days
 
-klo = download_daily("KLO", "1991-01-01", "2020-12-31")
-ref_klo = reference_degree_days(klo["tre200d0"], period=("1991", "2020"))
+klo = download_data("KLO", "1991-01-01", "2020-12-31", granularity="d", sensors=["temp"])
+ref_klo = reference_degree_days(klo["temp"], period=("1991", "2020"))
 print(ref_klo.monthly.round(0))
 ```
 

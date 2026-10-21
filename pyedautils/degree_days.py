@@ -542,7 +542,8 @@ def reference_degree_days(
 
     Args:
         temperature: Long outdoor temperature series (e.g. MeteoSwiss daily
-            values via :func:`pyedautils.weather.meteo_swiss.download_daily`).
+            values via :func:`pyedautils.weather.meteo_swiss.download_data`
+            with ``granularity="d"``).
         period: Reference years, inclusive. Default climate normal 1991–2020.
         base: Base temperature [°C], see :func:`degree_days`.
         threshold: Day-counting threshold [°C], see :func:`degree_days`.
