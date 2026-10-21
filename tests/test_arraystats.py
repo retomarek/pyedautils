@@ -8,6 +8,7 @@ import numpy as np
 from pyedautils.arraystats import (
     describe,
     detect_gaps,
+    gap_indices,
     detect_stuck,
     infer_interval,
     outliers_hampel,
@@ -93,6 +94,14 @@ class TestDetectGaps(unittest.TestCase):
         self.assertEqual(starts.dtype, ts.dtype)
 
 
+class TestGapIndices(unittest.TestCase):
+    def test_indices(self):
+        ts = np.array([0, 1, 2, 10, 11, 30]) * MIN
+        np.testing.assert_array_equal(gap_indices(ts), [2, 4])
+        self.assertEqual(gap_indices(ts).dtype, np.int64)
+        self.assertEqual(gap_indices(ts[:1]).size, 0)
+
+
 class TestDetectStuck(unittest.TestCase):
     def test_run(self):
         values = np.array([1.0, 2.0] + [5.0] * 30 + [3.0])
@@ -129,11 +138,19 @@ class TestOutliers(unittest.TestCase):
         values = np.concatenate([np.zeros(500), np.full(500, 100.0)])
         values += np.random.default_rng(2).normal(0, 0.1, 1000)
         values[700] = 110.0
-        mask = outliers_hampel(values, window=10, chunk_size=128)
+        mask = outliers_hampel(values, window=10)
         self.assertTrue(mask[700])
         self.assertLess(mask.sum(), 50)  # few noise hits, no level flagged
         # global methods would flag nothing or a whole level
         self.assertFalse(outliers_zscore(values)[700])
+
+    def test_hampel_large_input_is_fast(self):
+        import time
+
+        values = np.random.default_rng(3).normal(size=525_600)
+        t0 = time.perf_counter()
+        outliers_hampel(values, window=15)
+        self.assertLess(time.perf_counter() - t0, 1.0)
 
     def test_all_nan(self):
         values = np.full(10, np.nan)
