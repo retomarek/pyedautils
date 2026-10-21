@@ -347,5 +347,150 @@ class TestGTS(unittest.TestCase):
         self.assertAlmostEqual(res.ratio, 1.063, delta=0.003)
 
 
+class TestInputHelpers(unittest.TestCase):
+
+    def test_non_pandas_input(self):
+        with self.assertRaises(ValueError):
+            degree_days([1.0, 2.0, 3.0])
+
+    def test_single_column_frame_without_datetime_index(self):
+        with self.assertRaises(ValueError):
+            degree_days(pd.DataFrame({"value": [1.0, 2.0]}))
+
+    def test_duplicate_timestamps_averaged(self):
+        df = pd.DataFrame({
+            "timestamp": ["2023-01-01", "2023-01-01", "2023-01-02"],
+            "value": [0.0, 4.0, 2.0],
+        })
+        res = degree_days(df)
+        self.assertEqual(len(res), 2)
+        self.assertAlmostEqual(res["t_mean"].iloc[0], 2.0)
+        self.assertAlmostEqual(res["dd"].iloc[0], 18.0)
+
+    def test_single_observation(self):
+        res = degree_days(_const(2.0, periods=1))
+        self.assertEqual(len(res), 1)
+        self.assertAlmostEqual(res["dd"].iloc[0], 18.0)
+
+    def test_invalid_method(self):
+        with self.assertRaises(ValueError):
+            degree_days(_const(2.0), method="weekly")
+
+    def test_cooling_base_above_threshold(self):
+        with self.assertRaises(ValueError):
+            degree_days(_const(25.0), base=20.0, threshold=18.0, mode="cooling")
+
+    def test_aggregate_empty(self):
+        daily = degree_days(_const(2.0)).iloc[0:0]
+        with self.assertRaises(ValueError):
+            aggregate_degree_days(daily, "MS")
+
+
+class TestClimatologyInputs(unittest.TestCase):
+
+    def setUp(self):
+        idx = pd.date_range("2018-01-01", "2020-12-31", freq="D")
+        self.monthly = heating_degree_days(pd.Series(idx.month - 1.0, index=idx))
+
+    def test_rejects_non_pandas(self):
+        with self.assertRaises(ValueError):
+            climatology_from_monthly([1.0, 2.0])
+
+    def test_series_without_datetime_index(self):
+        with self.assertRaises(ValueError):
+            climatology_from_monthly(pd.Series([1.0, 2.0], index=[0, 1]))
+
+    def test_frame_with_unnamed_numeric_column(self):
+        frame = pd.DataFrame({"foo": self.monthly["hgt"]})
+        ref = climatology_from_monthly(frame, period=None)
+        self.assertAlmostEqual(ref.monthly[1], 31 * 20.0)
+        self.assertTrue(np.isnan(ref.monthly_days[1]))
+        self.assertEqual(ref.n_years, 3)
+
+    def test_frame_without_numeric_column(self):
+        frame = pd.DataFrame({"label": ["a", "b"]}, index=self.monthly.index[:2])
+        with self.assertRaises(ValueError):
+            climatology_from_monthly(frame)
+
+    def test_missing_calendar_months(self):
+        with self.assertRaisesRegex(ValueError, "calendar months"):
+            climatology_from_monthly(self.monthly.iloc[:6], period=None)
+
+
+class TestCorrectionInputs(unittest.TestCase):
+
+    def setUp(self):
+        self.clim = pd.Series(100.0, index=range(1, 13))
+
+    def test_actual_without_datetime_index(self):
+        with self.assertRaises(ValueError):
+            climate_correction_factor(pd.Series([50.0], index=[0]), self.clim)
+
+    def test_series_reference_needs_series_actual(self):
+        with self.assertRaises(ValueError):
+            climate_correction_factor(800.0, self.clim)
+
+    def test_negative_reference_rejected(self):
+        with self.assertRaises(ValueError):
+            climate_correction_factor(800.0, -1000.0)
+
+    def test_zero_in_series(self):
+        actual = pd.Series([0.0, 200.0], index=pd.to_datetime(["2023-01-01", "2023-02-01"]))
+        with self.assertLogs("pyedautils.degree_days", level="WARNING"):
+            f = climate_correction_factor(actual, 100.0)
+        self.assertTrue(np.isnan(f.iloc[0]))
+        self.assertAlmostEqual(f.iloc[1], 0.5)
+
+    def test_normalize_scalar_energy_with_series_dd(self):
+        idx = pd.to_datetime(["2023-01-01", "2023-02-01"])
+        actual = pd.Series([400.0, 250.0], index=idx)
+        with self.assertRaises(ValueError):
+            normalize_consumption(10000.0, actual, actual)
+
+
+class TestFitDegreeDayLineInputs(unittest.TestCase):
+
+    def setUp(self):
+        idx = pd.date_range("2023-01-01", periods=365, freq="D")
+        self.temp = pd.Series(np.linspace(-5, 25, 365), index=idx)
+        self.energy = 50.0 + 3.0 * (12.0 - self.temp).clip(lower=0)
+
+    def test_hourly_energy_summed_per_day(self):
+        hourly_idx = pd.date_range("2023-01-01", periods=365 * 24, freq="h")
+        hourly = pd.Series(np.repeat(self.energy.to_numpy() / 24.0, 24), index=hourly_idx)
+        line = fit_degree_day_line(hourly, self.temp, base=12.0)
+        self.assertAlmostEqual(line.intercept, 50.0, places=6)
+        self.assertAlmostEqual(line.slope, 3.0, places=6)
+        self.assertEqual(line.n, 365)
+
+    def test_monthly_energy_rejected_for_daily_fit(self):
+        monthly = self.energy.resample("MS").sum()
+        with self.assertRaises(ValueError):
+            fit_degree_day_line(monthly, self.temp, freq="D")
+
+    def test_daily_energy_monthly_fit(self):
+        line = fit_degree_day_line(self.energy, self.temp, base=12.0, freq="MS")
+        self.assertAlmostEqual(line.intercept, 50.0, places=6)
+        self.assertAlmostEqual(line.slope, 3.0, places=6)
+        self.assertEqual(line.n, 12)
+
+
+class TestGTSInputs(unittest.TestCase):
+
+    _ZERO = ([0.0] * 12, [0.0] * 12)
+
+    def test_mapping_degree_days(self):
+        gt = {m: 110.0 if m == 1 else 100.0 for m in range(1, 13)}
+        share = [1.0] + [0.0] * 11
+        res = gts_correction_factor(gt, [100.0] * 12, [100.0] * 12, [100.0] * 12, share,
+                                    ([1.0] * 12, [0.0] * 12), self._ZERO)
+        self.assertAlmostEqual(res.ratio, 1.1)
+
+    def test_non_positive_reference_rejected(self):
+        with self.assertRaises(ValueError):
+            gts_correction_factor([100.0] * 12, [0.0] * 12, [100.0] * 12, [100.0] * 12,
+                                  [1 / 12] * 12, self._ZERO, self._ZERO)
+
+
 if __name__ == "__main__":
     unittest.main()

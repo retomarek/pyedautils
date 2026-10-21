@@ -81,6 +81,12 @@ class TestDownloadDegreeDaysZurich(unittest.TestCase):
         with self.assertRaises(ValueError):
             download_degree_days_zurich()
 
+    @patch("pyedautils.weather.open_data_ch.requests.get")
+    def test_unexpected_format(self, mock_get):
+        mock_get.return_value = _mock_response("a,b\n1,2\n")
+        with self.assertRaises(ValueError):
+            download_degree_days_zurich()
+
 
 if __name__ == "__main__":
     unittest.main()

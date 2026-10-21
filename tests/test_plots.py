@@ -786,6 +786,27 @@ class TestDegreeDayPlots(unittest.TestCase):
         with self.assertRaises(ValueError):
             plot_degree_days(pd.DataFrame({"x": [1.0]}, index=pd.to_datetime(["2023-01-01"])))
 
+    def test_plot_degree_days_invalid_types(self, mock_season):
+        from pyedautils.plots import plot_degree_days
+        with self.assertRaises(ValueError):
+            plot_degree_days([1.0, 2.0])
+        with self.assertRaises(ValueError):
+            plot_degree_days(self.monthly, reference=[1.0, 2.0])
+
+    def test_plot_degree_days_reference_on_same_index(self, mock_season):
+        from pyedautils.plots import plot_degree_days
+        ref = pd.Series(300.0, index=self.monthly.index)
+        fig = plot_degree_days(self.monthly, reference=ref)
+        self.assertEqual(len(fig.data), 2)
+        self.assertAlmostEqual(float(fig.data[1].y[0]), 300.0)
+
+    def test_plot_degree_day_regression_single_season(self, mock_season):
+        from pyedautils.plots import plot_degree_day_regression
+        winter = slice("2023-01-01", "2023-02-28")
+        fig = plot_degree_day_regression(self.energy[winter], self.temp[winter], base=12.0)
+        names = [t.name for t in fig.data]
+        self.assertEqual(names, ["Winter", "Regression"])
+
     def test_plot_degree_day_regression_daily(self, mock_season):
         from pyedautils.plots import plot_degree_day_regression
         fig = plot_degree_day_regression(self.energy, self.temp, base=12.0)

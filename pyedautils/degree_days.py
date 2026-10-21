@@ -88,10 +88,7 @@ def _to_series(data, name: str = "value") -> pd.Series:
     else:
         raise ValueError("Input must be a pandas Series or DataFrame")
 
-    if not isinstance(s.index, pd.DatetimeIndex):
-        s.index = pd.DatetimeIndex(_to_datetime_ns(pd.Series(s.index)))
-    else:
-        s.index = pd.DatetimeIndex(_to_datetime_ns(pd.Series(s.index)))
+    s.index = pd.DatetimeIndex(_to_datetime_ns(pd.Series(s.index)))
     s = s[s.index.notna()]
     if s.empty:
         raise ValueError("Input contains no timestamps")

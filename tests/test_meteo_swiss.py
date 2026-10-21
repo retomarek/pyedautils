@@ -175,3 +175,20 @@ class TestOgdDownloads(unittest.TestCase):
         mock_get.side_effect = Exception("Network error")
         with self.assertRaises(ValueError):
             download_daily("KLO", "2023-01-01", "2023-01-02")
+
+    @patch('pyedautils.weather.meteo_swiss.requests.get')
+    def test_get_smn_stations_network_error(self, mock_get):
+        from pyedautils.weather.meteo_swiss import get_smn_stations
+        mock_get.side_effect = Exception("Network error")
+        with self.assertRaises(ValueError):
+            get_smn_stations()
+
+    @patch('pyedautils.weather.meteo_swiss.requests.get')
+    def test_download_daily_no_daily_assets(self, mock_get):
+        from pyedautils.weather.meteo_swiss import download_daily
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"assets": {"ogd-smn_klo_h_recent.csv": {"href": "x"}}}
+        mock_get.return_value = response
+        with self.assertRaisesRegex(ValueError, "No daily OGD files"):
+            download_daily("KLO", "2023-01-01", "2023-01-02")
