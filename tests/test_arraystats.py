@@ -1,0 +1,146 @@
+# -*- coding: utf-8 -*-
+
+import math
+import unittest
+
+import numpy as np
+
+from pyedautils.arraystats import (
+    describe,
+    detect_gaps,
+    detect_stuck,
+    infer_interval,
+    outliers_hampel,
+    outliers_iqr,
+    outliers_zscore,
+)
+
+MIN = 60_000  # one minute in ms
+
+
+class TestInferInterval(unittest.TestCase):
+    def test_regular(self):
+        ts = np.arange(100, dtype=np.int64) * MIN
+        self.assertEqual(infer_interval(ts), MIN)
+
+    def test_datetime64(self):
+        ts = np.arange("2024-01-01", "2024-01-02", dtype="datetime64[m]")
+        self.assertEqual(infer_interval(ts), 1)
+
+    def test_too_short(self):
+        self.assertIsNone(infer_interval(np.array([5])))
+        self.assertIsNone(infer_interval(np.array([5, 5])))
+
+
+class TestDescribe(unittest.TestCase):
+    def test_matches_numpy(self):
+        rng = np.random.default_rng(0)
+        values = rng.normal(20, 5, 10_000)
+        d = describe(values)
+        self.assertEqual(d["n"], 10_000)
+        self.assertAlmostEqual(d["mean"], values.mean())
+        self.assertAlmostEqual(d["median"], np.median(values))
+        self.assertAlmostEqual(d["std"], values.std())
+        self.assertAlmostEqual(d["p05"], np.percentile(values, 5))
+        self.assertAlmostEqual(d["p95"], np.percentile(values, 95))
+        self.assertTrue(math.isnan(d["coverage"]))
+
+    def test_ignores_nan_and_reports_timestamps(self):
+        ts = np.arange(5, dtype=np.int64) * MIN
+        values = np.array([1.0, np.nan, 9.0, -3.0, np.nan])
+        d = describe(values, ts)
+        self.assertEqual(d["n"], 3)
+        self.assertEqual(d["n_missing"], 2)
+        self.assertEqual(d["min"], -3.0)
+        self.assertEqual(d["ts_min"], 3 * MIN)
+        self.assertEqual(d["ts_max"], 2 * MIN)
+        self.assertEqual(d["ts_first"], 0)
+        self.assertEqual(d["ts_last"], 3 * MIN)
+        self.assertAlmostEqual(d["coverage"], 3 / 5)
+
+    def test_coverage_for_explicit_range(self):
+        ts = np.arange(60, dtype=np.int64) * MIN  # one hour of data
+        d = describe(np.ones(60), ts, expected_interval=MIN, start=0, end=120 * MIN)
+        self.assertAlmostEqual(d["coverage"], 0.5)
+
+    def test_empty(self):
+        d = describe(np.array([np.nan, np.nan]), np.array([0, MIN]))
+        self.assertEqual(d["n"], 0)
+        self.assertTrue(math.isnan(d["mean"]))
+        self.assertIsNone(d["ts_min"])
+
+    def test_length_mismatch(self):
+        with self.assertRaises(ValueError):
+            describe(np.ones(3), np.arange(2))
+
+
+class TestDetectGaps(unittest.TestCase):
+    def test_finds_gap(self):
+        ts = np.concatenate([np.arange(10), np.arange(30, 40)]).astype(np.int64) * MIN
+        starts, ends = detect_gaps(ts)
+        np.testing.assert_array_equal(starts, [9 * MIN])
+        np.testing.assert_array_equal(ends, [30 * MIN])
+
+    def test_min_gap(self):
+        ts = np.array([0, 1, 2, 5, 6]) * MIN
+        self.assertEqual(detect_gaps(ts)[0].size, 1)
+        self.assertEqual(detect_gaps(ts, min_gap=10 * MIN)[0].size, 0)
+
+    def test_datetime64_keeps_dtype(self):
+        ts = np.array(["2024-01-01T00:00", "2024-01-01T00:01", "2024-01-01T05:00"],
+                      dtype="datetime64[m]")
+        starts, _ = detect_gaps(ts, expected_interval=1)
+        self.assertEqual(starts.dtype, ts.dtype)
+
+
+class TestDetectStuck(unittest.TestCase):
+    def test_run(self):
+        values = np.array([1.0, 2.0] + [5.0] * 30 + [3.0])
+        ts = np.arange(values.size, dtype=np.int64) * MIN
+        start, end, value, n = detect_stuck(values, ts, min_repeats=20)
+        np.testing.assert_array_equal(start, [2 * MIN])
+        np.testing.assert_array_equal(end, [31 * MIN])
+        np.testing.assert_array_equal(value, [5.0])
+        np.testing.assert_array_equal(n, [30])
+
+    def test_min_duration(self):
+        values = np.array([5.0] * 30)
+        ts = np.arange(30, dtype=np.int64) * MIN
+        self.assertEqual(detect_stuck(values, ts, 20, min_duration=60 * MIN)[0].size, 0)
+
+
+class TestOutliers(unittest.TestCase):
+    def setUp(self):
+        rng = np.random.default_rng(1)
+        self.values = rng.normal(0, 1, 2_000)
+        self.values[[100, 1500]] = [15.0, -12.0]
+        self.values[50] = np.nan
+
+    def test_iqr(self):
+        mask = outliers_iqr(self.values, multiplier=3.0)
+        self.assertTrue(mask[100] and mask[1500])
+        self.assertFalse(mask[50])
+
+    def test_zscore(self):
+        mask = outliers_zscore(self.values, threshold=5.0)
+        np.testing.assert_array_equal(np.flatnonzero(mask), [100, 1500])
+
+    def test_hampel_robust_to_level_shift(self):
+        values = np.concatenate([np.zeros(500), np.full(500, 100.0)])
+        values += np.random.default_rng(2).normal(0, 0.1, 1000)
+        values[700] = 110.0
+        mask = outliers_hampel(values, window=10, chunk_size=128)
+        self.assertTrue(mask[700])
+        self.assertLess(mask.sum(), 50)  # few noise hits, no level flagged
+        # global methods would flag nothing or a whole level
+        self.assertFalse(outliers_zscore(values)[700])
+
+    def test_all_nan(self):
+        values = np.full(10, np.nan)
+        self.assertFalse(outliers_iqr(values).any())
+        self.assertFalse(outliers_zscore(values).any())
+        self.assertFalse(outliers_hampel(values, window=2).any())
+
+
+if __name__ == "__main__":
+    unittest.main()

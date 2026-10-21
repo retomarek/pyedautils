@@ -77,6 +77,13 @@ class TestDetectStuck(unittest.TestCase):
         self.assertEqual(stuck.iloc[0]["stuck_value"], 50.0)
         self.assertEqual(stuck.iloc[0]["n_repeats"], 60)
 
+    def test_stuck_keeps_timezone(self):
+        df = _series_with_gap_and_stuck()
+        df["timestamp"] = df["timestamp"].dt.tz_localize("Europe/Zurich")
+        stuck = detect_stuck(df, min_repeats=20, min_duration_h=6.0)
+        self.assertEqual(stuck.iloc[0]["stuck_start"],
+                         pd.Timestamp("2024-01-01 12:00", tz="Europe/Zurich"))
+
     def test_min_duration_filters(self):
         df = _series_with_gap_and_stuck()
         # require 20 hours -> the 9.83h run no longer qualifies
