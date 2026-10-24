@@ -6,6 +6,11 @@ import unittest
 import numpy as np
 
 from pyedautils.arraystats import (
+    bucket_coverage,
+    find_gaps,
+    interval_overlap,
+    interval_segments,
+    local_interval,
     describe,
     detect_gaps,
     gap_indices,
@@ -161,3 +166,129 @@ class TestOutliers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+HOUR = 60 * MIN
+
+
+def _regular(n, step, start=0):
+    return start + np.arange(n, dtype=np.int64) * step
+
+
+class TestLocalInterval(unittest.TestCase):
+    def test_rate_change_is_not_a_gap(self):
+        a = _regular(500, 10 * MIN)
+        b = a[-1] + _regular(300, 60 * MIN, 60 * MIN)
+        ts = np.r_[a, b]
+        self.assertEqual(find_gaps(ts).index.size, 0)
+        self.assertEqual(find_gaps(ts[::-1][::-1]).index.size, 0)
+        back = np.r_[_regular(300, 60 * MIN), 300 * 60 * MIN + _regular(500, 10 * MIN)]
+        self.assertEqual(find_gaps(back).index.size, 0)
+
+    def test_outage_is_found(self):
+        ts = _regular(1000, 10 * MIN)
+        ts[600:] += 2 * HOUR
+        gaps = find_gaps(ts)
+        self.assertEqual(gaps.index.tolist(), [599])
+        self.assertEqual(gaps.expected[0], 10 * MIN)
+        self.assertEqual(gaps.duration[0], 2 * HOUR + 10 * MIN)
+
+    def test_outage_at_rate_change_is_found(self):
+        a = _regular(500, 10 * MIN)
+        b = a[-1] + 6 * HOUR + _regular(300, 60 * MIN)
+        self.assertEqual(find_gaps(np.r_[a, b]).index.tolist(), [499])
+
+    def test_jitter_and_duplicates(self):
+        rng = np.random.default_rng(0)
+        ts = np.cumsum(rng.integers(9 * MIN, 11 * MIN, 2000)).astype(np.int64)
+        self.assertEqual(find_gaps(ts, factor=2.5).index.size, 0)
+        dup = np.r_[ts[:100], ts[99], ts[100:]]
+        self.assertEqual(find_gaps(dup).index.size, 0)
+        self.assertTrue(np.isnan(local_interval(dup)[99]))
+        with self.assertRaises(ValueError):
+            local_interval(ts[::-1])
+
+    def test_short_and_datetime64(self):
+        self.assertEqual(find_gaps(np.empty(0, dtype=np.int64)).index.size, 0)
+        self.assertEqual(find_gaps(np.array([5])).index.size, 0)
+        self.assertEqual(find_gaps(np.array([0, 10])).index.size, 0)
+        ts = np.arange("2024-01-01", "2024-01-03", dtype="datetime64[h]")
+        ts = np.delete(ts, slice(10, 20))
+        gaps = find_gaps(ts)
+        self.assertEqual(gaps.index.tolist(), [9])
+
+    def test_trailing_gap(self):
+        ts = _regular(100, 10 * MIN)
+        self.assertEqual(find_gaps(ts, end=ts[-1] + 20 * MIN).index.size, 0)
+        gaps = find_gaps(ts, end=ts[-1] + 5 * HOUR)
+        self.assertEqual(gaps.index.tolist(), [99])
+        self.assertEqual(gaps.end[0], ts[-1] + 5 * HOUR)
+
+    def test_fixed_mode_unchanged(self):
+        ts = np.r_[_regular(500, 10 * MIN), 4990 * MIN + _regular(300, 60 * MIN, 60 * MIN)]
+        fixed = gap_indices(ts, factor=3.0)
+        self.assertGreater(fixed.size, 200)  # the global median flags the slow part
+        self.assertEqual(gap_indices(ts, factor=3.0, adaptive=True).size, 0)
+        self.assertEqual(detect_gaps(ts, factor=3.0, adaptive=True)[0].size, 0)
+
+
+class TestIntervalSegments(unittest.TestCase):
+    def test_two_rates(self):
+        a = _regular(500, 10 * MIN)
+        b = a[-1] + _regular(300, 60 * MIN, 60 * MIN)
+        seg = interval_segments(np.r_[a, b])
+        self.assertEqual((seg.interval / MIN).tolist(), [10.0, 60.0])
+        self.assertEqual(seg.n.sum(), 800)
+        self.assertLessEqual(abs(seg.start[1] - a[-1]), 16 * 60 * MIN)
+
+    def test_flicker_is_merged(self):
+        ts = _regular(2000, 10 * MIN)
+        ts[1000:1010] = ts[999] + np.arange(1, 11) * 30 * MIN
+        ts[1010:] = ts[1009] + np.arange(1, 991) * 10 * MIN
+        self.assertEqual(len(interval_segments(ts).interval), 1)
+
+    def test_short(self):
+        self.assertEqual(interval_segments(np.array([1])).n.size, 0)
+        self.assertEqual(interval_segments(_regular(10, MIN)).n.tolist(), [10])
+
+
+class TestBucketCoverage(unittest.TestCase):
+    def test_gap_across_bucket_edge(self):
+        day = 24 * HOUR
+        ts = _regular(3 * 144, 10 * MIN)
+        ts = ts[(ts < day - 3 * HOUR) | (ts >= day + 3 * HOUR)]  # 6 h gap around midnight
+        edges = np.arange(0, 4 * day, day)
+        c = bucket_coverage(edges, find_gaps(ts), ts[0], ts[-1] + 10 * MIN, ts)
+        missing_h = c.missing / HOUR
+        self.assertAlmostEqual(missing_h[0] + missing_h[1], 6.0, places=6)  # 6 h 10 min gap, the sample before covers 10 min
+        self.assertEqual(c.samples.sum(), ts.size)
+        self.assertEqual(c.n_gaps.tolist(), [1, 0, 0])
+        self.assertTrue((c.missing <= c.observed).all())
+        self.assertAlmostEqual(c.coverage[2], 1.0)
+
+    def test_outside_window_and_trailing(self):
+        ts = _regular(100, 10 * MIN, 10 * HOUR)
+        edges = np.array([0, 10 * HOUR, 30 * HOUR, 40 * HOUR], dtype=np.float64)
+        now = 30 * HOUR
+        gaps = find_gaps(ts, end=now)
+        c = bucket_coverage(edges, gaps, ts[0], now, ts)
+        self.assertTrue(np.isnan(c.coverage[0]) and np.isnan(c.coverage[2]))
+        stale = (now - ts[-1] - 10 * MIN) / (now - ts[0])
+        self.assertAlmostEqual(c.coverage[1], 1 - stale)
+
+    def test_interval_overlap(self):
+        edges = np.array([0, 10, 20, 30])
+        self.assertEqual(interval_overlap(np.array([5, 15]), np.array([12, 25]), edges).tolist(),
+                         [5.0, 7.0, 5.0])
+        self.assertEqual(interval_overlap(np.array([]), np.array([]), edges).tolist(), [0, 0, 0])
+        with self.assertRaises(ValueError):
+            interval_overlap(np.array([1]), np.array([2]), np.array([3, 1]))
+
+    def test_speed(self):
+        import time
+
+        rng = np.random.default_rng(1)
+        ts = np.cumsum(rng.integers(54_000, 66_000, 1_500_000)).astype(np.int64)
+        t0 = time.perf_counter()
+        find_gaps(ts)
+        self.assertLess(time.perf_counter() - t0, 0.5)

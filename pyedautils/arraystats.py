@@ -12,7 +12,7 @@ Missing values are represented as ``NaN`` and ignored by all statistics.
 
 from __future__ import annotations
 
-from typing import Optional, TypedDict
+from typing import NamedTuple, Optional, TypedDict
 
 import numpy as np
 
@@ -22,6 +22,14 @@ __all__ = [
     "infer_interval",
     "gap_indices",
     "detect_gaps",
+    "local_interval",
+    "Gaps",
+    "find_gaps",
+    "IntervalSegments",
+    "interval_segments",
+    "interval_overlap",
+    "BucketCoverage",
+    "bucket_coverage",
     "detect_stuck",
     "outliers_iqr",
     "outliers_zscore",
@@ -165,13 +173,19 @@ def gap_indices(
     expected_interval: Optional[float] = None,
     factor: float = 2.0,
     min_gap: Optional[float] = None,
+    adaptive: bool = False,
+    block: int = 16,
 ) -> np.ndarray:
     """Indices ``i`` where a gap lies between ``ts[i]`` and ``ts[i + 1]``.
 
     A gap is a time difference larger than ``max(factor * expected_interval,
     min_gap)``; the interval is inferred via :func:`infer_interval` when
-    ``None``. Returns an int64 array (empty if there are no gaps).
+    ``None``. With ``adaptive=True`` (and no ``expected_interval``) the expected
+    interval is the local one (:func:`local_interval`), so a change of the
+    sampling rate is not a gap. Returns an int64 array (empty if no gaps).
     """
+    if adaptive and expected_interval is None:
+        return find_gaps(ts, factor=factor, min_gap=min_gap, block=block).index
     ticks = _as_ticks(ts)
     empty = np.empty(0, dtype=np.int64)
     if ticks.size < 2:
@@ -188,6 +202,8 @@ def detect_gaps(
     expected_interval: Optional[float] = None,
     factor: float = 2.0,
     min_gap: Optional[float] = None,
+    adaptive: bool = False,
+    block: int = 16,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Find gaps between consecutive timestamps.
 
@@ -200,14 +216,280 @@ def detect_gaps(
             inferred via :func:`infer_interval` when ``None``.
         factor: Multiplier on the expected interval. Default 2.0.
         min_gap: Minimum gap length in timestamp units. Default 0.
+        adaptive: Compare against the local interval (:func:`local_interval`)
+            instead of one interval for the whole series. Default False.
+        block: Block size of the local interval. Default 16.
 
     Returns:
         ``(gap_start, gap_end)``: arrays with the last timestamp before and
         the first timestamp after each gap (same dtype as ``ts``).
     """
     ts = np.asarray(ts)
-    idx = gap_indices(ts, expected_interval, factor, min_gap)
+    idx = gap_indices(ts, expected_interval, factor, min_gap, adaptive, block)
     return ts[idx], ts[idx + 1]
+
+
+def _block_medians(dp: np.ndarray, block: int) -> np.ndarray:
+    """Medians of consecutive blocks of ``dp``; a short remainder (less than half a
+    block) joins the last block."""
+    k = dp.size // block
+    medians = np.median(dp[: k * block].reshape(k, block), axis=1)
+    rest = dp.size - k * block
+    if rest >= block // 2:
+        medians = np.append(medians, np.median(dp[k * block :]))
+    elif rest:
+        medians[-1] = np.median(dp[(k - 1) * block :])
+    return medians
+
+
+def local_interval(ts: np.ndarray, block: int = 16) -> np.ndarray:
+    """Expected sampling interval before each step, robust to rate changes.
+
+    The positive time differences are split into blocks of ``block`` steps; the
+    expected interval of a step is the largest median of its own block and the two
+    neighbouring blocks. A switch from 10 to 60 minutes (e.g. a LoRaWAN downlink)
+    therefore does not make the first 60-minute steps look like gaps, while a long
+    outage between regular samples stands out. Fewer than ``2 * block`` steps fall
+    back to the global median. Vectorised, O(n).
+
+    Limitation: if more than half of the packets of a block are lost, the local
+    interval reads too long and those losses are not flagged.
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        block: Steps per block. Default 16.
+
+    Returns:
+        float64 array of length ``len(ts) - 1``; ``nan`` for duplicate timestamps.
+
+    Raises:
+        ValueError: if ``ts`` is not sorted.
+    """
+    ticks = _as_ticks(ts)
+    d = np.diff(ticks).astype(np.float64)
+    out = np.full(d.size, np.nan)
+    if d.size == 0:
+        return out
+    if (d < 0).any():
+        raise ValueError("ts must be sorted")
+    pos = d > 0
+    dp = d[pos]
+    if dp.size == 0:
+        return out
+    if dp.size < 2 * block:
+        out[pos] = np.median(dp)
+        return out
+    medians = _block_medians(dp, block)
+    padded = np.concatenate([medians[:1], medians, medians[-1:]])
+    expected = np.maximum(np.maximum(padded[:-2], padded[1:-1]), padded[2:])
+    which = np.minimum(np.arange(dp.size) // block, medians.size - 1)
+    out[pos] = expected[which]
+    return out
+
+
+class Gaps(NamedTuple):
+    """Gaps of a series: ``index`` i means between ``ts[i]`` and ``ts[i + 1]``
+    (``len(ts) - 1`` for a trailing gap up to ``end``)."""
+
+    index: np.ndarray  # int64
+    start: np.ndarray  # last timestamp before the gap (ticks)
+    end: np.ndarray  # first timestamp after the gap (or ``end``)
+    expected: np.ndarray  # float64: expected interval at the gap
+
+    @property
+    def duration(self) -> np.ndarray:
+        return self.end - self.start
+
+
+def find_gaps(
+    ts: np.ndarray,
+    factor: float = 3.0,
+    min_gap: Optional[float] = None,
+    block: int = 16,
+    expected_interval: Optional[float] = None,
+    end: Optional[float] = None,
+) -> Gaps:
+    """Gaps longer than ``max(factor * expected interval, min_gap)``.
+
+    The expected interval is the local one (:func:`local_interval`) unless
+    ``expected_interval`` is given. With ``end`` (e.g. "now"), the time after the
+    last sample counts as a trailing gap if it is that long.
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        factor: Multiplier on the expected interval. Default 3.0.
+        min_gap: Minimum gap length in timestamp units. Default 0.
+        block: Block size of :func:`local_interval`. Default 16.
+        expected_interval: Fixed expected interval (disables the local estimate).
+        end: Timestamp up to which data is expected (ticks).
+
+    Returns:
+        :class:`Gaps` (start and end in ticks).
+    """
+    ticks = _as_ticks(ts)
+    n = ticks.size
+    if n < 2:
+        empty_f = np.empty(0, dtype=np.float64)
+        return Gaps(np.empty(0, dtype=np.int64), ticks[:0], ticks[:0], empty_f)
+    if expected_interval is not None:
+        expected = np.full(n - 1, float(expected_interval))
+    else:
+        expected = local_interval(ticks, block)
+    d = np.diff(ticks)
+    threshold = np.maximum(factor * expected, min_gap or 0)
+    with np.errstate(invalid="ignore"):
+        idx = np.flatnonzero(d > threshold).astype(np.int64)
+    starts, ends, exp = ticks[idx], ticks[idx + 1], expected[idx]
+    if end is not None:
+        finite = expected[np.isfinite(expected)]
+        last = float(expected_interval) if expected_interval is not None else (
+            float(finite[-1]) if finite.size else None)
+        if last is not None and end - ticks[-1] > max(factor * last, min_gap or 0):
+            idx = np.append(idx, n - 1)
+            starts = np.append(starts, ticks[-1])
+            ends = np.append(ends, np.asarray(end).astype(ticks.dtype))
+            exp = np.append(exp, last)
+    return Gaps(idx, starts, ends, exp)
+
+
+class IntervalSegments(NamedTuple):
+    """Periods with one sampling interval (e.g. 10 min, then 60 min)."""
+
+    start: np.ndarray  # first timestamp of the segment (ticks)
+    end: np.ndarray  # last timestamp of the segment
+    interval: np.ndarray  # float64 median interval in the segment
+    n: np.ndarray  # int64 samples in the segment
+
+
+def interval_segments(
+    ts: np.ndarray, block: int = 16, tolerance: float = 0.25, min_blocks: int = 3
+) -> IntervalSegments:
+    """Split a series into periods with a stable sampling interval.
+
+    Block medians (see :func:`local_interval`) are put into logarithmic classes of
+    relative width ``tolerance``; runs of the same class form segments, and runs
+    shorter than ``min_blocks`` blocks (flicker, outages) join the previous segment.
+    The interval of a segment is the median of its positive time differences.
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        block: Steps per block. Default 16.
+        tolerance: Relative difference treated as the same interval. Default 0.25.
+        min_blocks: Minimum length of a segment in blocks. Default 3.
+
+    Returns:
+        :class:`IntervalSegments` (empty for fewer than two distinct timestamps).
+    """
+    ticks = _as_ticks(ts)
+    empty = IntervalSegments(ticks[:0], ticks[:0], np.empty(0), np.empty(0, dtype=np.int64))
+    if ticks.size < 2:
+        return empty
+    d = np.diff(ticks).astype(np.float64)
+    pos_idx = np.flatnonzero(d > 0)
+    if pos_idx.size == 0:
+        return empty
+    dp = d[pos_idx]
+    if dp.size < 2 * block:
+        return IntervalSegments(ticks[:1], ticks[-1:], np.array([np.median(dp)]),
+                                np.array([ticks.size], dtype=np.int64))
+    medians = _block_medians(dp, block)
+    classes = np.round(np.log(medians) / np.log1p(tolerance)).astype(np.int64)
+    # runs of equal class; short runs join the previous long run
+    starts = np.flatnonzero(np.r_[True, classes[1:] != classes[:-1]])
+    lengths = np.diff(np.r_[starts, classes.size])
+    long_run = lengths >= min_blocks
+    if not long_run.any():
+        long_run[np.argmax(lengths)] = True
+    keep = starts[long_run]
+    # neighbouring long runs of the same class (split by a dropped short run) are one
+    keep = keep[np.r_[True, classes[keep[1:]] != classes[keep[:-1]]]]
+    if keep[0] != 0:  # leading short runs belong to the first long run
+        keep[0] = 0
+    block_start = keep * block  # index into dp
+    step_start = pos_idx[block_start]  # index into ts
+    seg_start = ticks[step_start]
+    next_start = np.r_[step_start[1:], ticks.size - 1]
+    seg_end = ticks[next_start]
+    bounds = np.r_[block_start, dp.size]
+    interval = np.array([np.median(dp[a:b]) for a, b in zip(bounds[:-1], bounds[1:])])
+    n = np.diff(np.r_[step_start, ticks.size]).astype(np.int64)
+    return IntervalSegments(seg_start, seg_end, interval, n)
+
+
+def interval_overlap(starts: np.ndarray, ends: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """Total length of sorted, non-overlapping intervals ``[starts, ends)`` inside
+    each bucket ``[edges[k], edges[k + 1])``. Vectorised, O((n + k) log n)."""
+    edges = np.asarray(edges, dtype=np.float64)
+    if edges.size < 2:
+        return np.empty(0)
+    if (np.diff(edges) < 0).any():
+        raise ValueError("edges must be sorted")
+    s = np.asarray(starts, dtype=np.float64)
+    e = np.asarray(ends, dtype=np.float64)
+    if s.size == 0:
+        return np.zeros(edges.size - 1)
+    length = np.maximum(e - s, 0)
+    before = np.r_[0.0, np.cumsum(length)]
+
+    def covered(t: np.ndarray) -> np.ndarray:
+        k = np.searchsorted(s, t, side="right") - 1
+        inside = np.where(k >= 0, np.clip(t - s[np.maximum(k, 0)], 0, length[np.maximum(k, 0)]), 0)
+        return before[np.maximum(k, 0)] * (k >= 0) + inside
+
+    return np.diff(covered(edges))
+
+
+class BucketCoverage(NamedTuple):
+    """Per bucket: observed time, missing time (in gaps), samples and gap count.
+    All fields are additive, e.g. over the series of a building."""
+
+    observed: np.ndarray
+    missing: np.ndarray
+    samples: np.ndarray
+    n_gaps: np.ndarray
+
+    @property
+    def coverage(self) -> np.ndarray:
+        """Share of observed time without gap (``nan`` where nothing was observed)."""
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(self.observed > 0, 1 - self.missing / self.observed, np.nan)
+
+
+def bucket_coverage(
+    edges: np.ndarray,
+    gaps: Gaps,
+    first: float,
+    obs_end: float,
+    ts: Optional[np.ndarray] = None,
+) -> BucketCoverage:
+    """Time-based coverage per bucket ``[edges[k], edges[k + 1])``.
+
+    The observed period is ``[first, obs_end)`` (e.g. first sample to now). Of each
+    gap, ``[start + expected, end)`` is missing: the sample before a gap still
+    covers one interval.
+
+    Args:
+        edges: Sorted bucket edges (ticks).
+        gaps: Result of :func:`find_gaps`.
+        first: Start of the observed period.
+        obs_end: End of the observed period.
+        ts: Timestamps for the sample counts (optional).
+
+    Returns:
+        :class:`BucketCoverage`.
+    """
+    edges = np.asarray(edges, dtype=np.float64)
+    observed = interval_overlap(np.array([first]), np.array([max(first, obs_end)]), edges)
+    miss_start = np.maximum(gaps.start.astype(np.float64) + gaps.expected, first)
+    miss_end = np.minimum(gaps.end.astype(np.float64), obs_end)
+    valid = miss_end > miss_start
+    missing = interval_overlap(miss_start[valid], miss_end[valid], edges)
+    if ts is not None:
+        samples = np.diff(np.searchsorted(_as_ticks(ts), edges, side="left")).astype(np.int64)
+    else:
+        samples = np.zeros(edges.size - 1, dtype=np.int64)
+    n_gaps = np.diff(np.searchsorted(gaps.start.astype(np.float64), edges, side="left"))
+    return BucketCoverage(observed, missing, samples, n_gaps.astype(np.int64))
 
 
 def detect_stuck(
