@@ -5,6 +5,8 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 
 from pyedautils.weather.meteo_swiss import (
+    get_smn_parameters,
+    get_station_parameters,
     get_current_station_data,
     find_nearest_station,
     download_data,
@@ -321,3 +323,59 @@ class TestGetSmnStations(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()  # pragma: no cover
+
+
+PARAMETERS_CSV = (
+    "parameter_shortname;parameter_description_de;parameter_description_fr;"
+    "parameter_description_it;parameter_description_en;parameter_group_de;parameter_group_fr;"
+    "parameter_group_it;parameter_group_en;parameter_granularity;parameter_decimals;"
+    "parameter_datatype;parameter_unit\n"
+    "tre200h0;Lufttemperatur 2 m;Temp. 2 m;Temp. 2 m;Air temperature 2 m;Temperatur;"
+    "Temperature;Temperatura;Temperature;H;1;Float;\u00b0C\n"
+    "gre000h0;Globalstrahlung;Rayonnement;Radiazione;Global radiation;Strahlung;"
+    "Rayonnement;Radiazione;Radiation;H;0;Integer;W/m\u00b2\n"
+    "tre200d0;Lufttemperatur Tagesmittel;T;T;Air temperature daily mean;Temperatur;"
+    "Temperature;Temperatura;Temperature;D;1;Float;\u00b0C\n"
+)
+INVENTORY_CSV = (
+    "station_abbr;parameter_shortname;meas_cat_nr;data_since;data_till;owner\n"
+    "LUZ;tre200h0;1;01.01.1981 00:00;;MeteoSchweiz\n"
+    "LUZ;gre000h0;1;01.01.1981 00:00;31.12.2019 23:00;MeteoSchweiz\n"
+    "LUZ;tre200d0;1;01.01.1864 00:00;;MeteoSchweiz\n"
+    "KLO;tre200h0;1;01.01.1981 00:00;;MeteoSchweiz\n"
+)
+
+
+def _meta_text(url, timeout):
+    return PARAMETERS_CSV if url.endswith("meta_parameters.csv") else INVENTORY_CSV
+
+
+class TestStationParameters(unittest.TestCase):
+    @patch("pyedautils.weather.meteo_swiss._get_text", side_effect=_meta_text)
+    def test_parameters_of_station(self, mock_text):
+        df = get_station_parameters("luz", granularity="h")
+        self.assertEqual(list(df["parameter"]), ["gre000h0", "tre200h0"])  # by group
+        temp = df[df["parameter"] == "tre200h0"].iloc[0]
+        self.assertEqual(temp["description"], "Air temperature 2 m")
+        self.assertEqual(temp["unit"], "\u00b0C")
+        self.assertTrue(pd.isna(temp["data_till"]))
+
+    @patch("pyedautils.weather.meteo_swiss._get_text", side_effect=_meta_text)
+    def test_all_granularities_and_language(self, mock_text):
+        df = get_station_parameters("LUZ", lang="de")
+        self.assertEqual(len(df), 3)
+        self.assertIn("Lufttemperatur 2 m", list(df["description"]))
+
+    @patch("pyedautils.weather.meteo_swiss._get_text", side_effect=_meta_text)
+    def test_unknown_station_is_empty(self, mock_text):
+        self.assertTrue(get_station_parameters("XXX").empty)
+
+    def test_invalid_arguments(self):
+        with self.assertRaises(ValueError):
+            get_station_parameters("LUZ", lang="xx")
+
+    @patch("pyedautils.weather.meteo_swiss._get_text", side_effect=Exception("offline"))
+    def test_network_error(self, mock_text):
+        with self.assertRaises(ValueError):
+            get_smn_parameters()
+
