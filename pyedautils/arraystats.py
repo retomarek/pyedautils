@@ -12,7 +12,7 @@ Missing values are represented as ``NaN`` and ignored by all statistics.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional, TypedDict
+from typing import NamedTuple, Optional, Sequence, TypedDict, Union
 
 import numpy as np
 
@@ -35,6 +35,10 @@ __all__ = [
     "outliers_zscore",
     "outliers_hampel",
 ]
+
+
+#: ``[[start, end], ...]`` as a sequence of pairs or an array of shape (k, 2)
+RangesLike = Union[np.ndarray, Sequence[Sequence[float]]]
 
 
 class Description(TypedDict):
@@ -308,7 +312,7 @@ class Gaps(NamedTuple):
     def duration(self) -> np.ndarray:
         return self.end - self.start
 
-    def without(self, exclude) -> "Gaps":
+    def without(self, exclude: "RangesLike") -> "Gaps":
         """Drop gaps whose missing part (``[start + expected, end)``) lies completely
         inside the excluded ranges (``[[start, end], ...]``, e.g. removed test data)."""
         ranges = _merged_ranges(exclude)
@@ -476,7 +480,7 @@ class BucketCoverage(NamedTuple):
             return np.where(self.observed > 0, 1 - self.missing / self.observed, np.nan)
 
 
-def _merged_ranges(ranges) -> np.ndarray:
+def _merged_ranges(ranges: "RangesLike") -> np.ndarray:
     """``[[start, end], ...]`` as a sorted, non-overlapping float64 array of shape (k, 2)."""
     arr = np.asarray(ranges, dtype=np.float64).reshape(-1, 2)
     arr = arr[arr[:, 1] > arr[:, 0]]
@@ -508,7 +512,7 @@ def bucket_coverage(
     first: float,
     obs_end: float,
     ts: Optional[np.ndarray] = None,
-    exclude=None,
+    exclude: Optional["RangesLike"] = None,
 ) -> BucketCoverage:
     """Time-based coverage per bucket ``[edges[k], edges[k + 1])``.
 
