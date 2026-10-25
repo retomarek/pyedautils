@@ -273,7 +273,8 @@ def local_interval(ts: np.ndarray, block: int = 16) -> np.ndarray:
     if (d < 0).any():
         raise ValueError("ts must be sorted")
     pos = d > 0
-    dp = d[pos]
+    all_pos = bool(pos.all())
+    dp = d if all_pos else d[pos]
     if dp.size == 0:
         return out
     if dp.size < 2 * block:
@@ -282,8 +283,15 @@ def local_interval(ts: np.ndarray, block: int = 16) -> np.ndarray:
     medians = _block_medians(dp, block)
     padded = np.concatenate([medians[:1], medians, medians[-1:]])
     expected = np.maximum(np.maximum(padded[:-2], padded[1:-1]), padded[2:])
-    which = np.minimum(np.arange(dp.size) // block, medians.size - 1)
-    out[pos] = expected[which]
+    # per step: the value of its block (the last block also takes a short remainder)
+    per_step = np.repeat(expected, block)[: dp.size]
+    if per_step.size < dp.size:
+        per_step = np.r_[per_step, np.full(dp.size - per_step.size, expected[-1])]
+    else:
+        per_step[(medians.size - 1) * block :] = expected[-1]
+    if all_pos:
+        return per_step
+    out[pos] = per_step
     return out
 
 
@@ -299,6 +307,19 @@ class Gaps(NamedTuple):
     @property
     def duration(self) -> np.ndarray:
         return self.end - self.start
+
+    def without(self, exclude) -> "Gaps":
+        """Drop gaps whose missing part (``[start + expected, end)``) lies completely
+        inside the excluded ranges (``[[start, end], ...]``, e.g. removed test data)."""
+        ranges = _merged_ranges(exclude)
+        if ranges.size == 0 or self.index.size == 0:
+            return self
+        miss_start = self.start.astype(np.float64) + self.expected
+        miss_end = self.end.astype(np.float64)
+        k = np.searchsorted(ranges[:, 0], miss_start, side="right") - 1
+        inside = (k >= 0) & (miss_end <= ranges[np.maximum(k, 0), 1])
+        keep = ~inside
+        return Gaps(self.index[keep], self.start[keep], self.end[keep], self.expected[keep])
 
 
 def find_gaps(
@@ -455,12 +476,39 @@ class BucketCoverage(NamedTuple):
             return np.where(self.observed > 0, 1 - self.missing / self.observed, np.nan)
 
 
+def _merged_ranges(ranges) -> np.ndarray:
+    """``[[start, end], ...]`` as a sorted, non-overlapping float64 array of shape (k, 2)."""
+    arr = np.asarray(ranges, dtype=np.float64).reshape(-1, 2)
+    arr = arr[arr[:, 1] > arr[:, 0]]
+    if arr.shape[0] < 2:
+        return arr
+    arr = arr[np.argsort(arr[:, 0])]
+    ends = np.maximum.accumulate(arr[:, 1])
+    new = np.r_[True, arr[1:, 0] > ends[:-1]]
+    starts = arr[new, 0]
+    group_end = np.r_[np.flatnonzero(new)[1:], arr.shape[0]] - 1
+    return np.column_stack([starts, ends[group_end]])
+
+
+def _subtract(starts: np.ndarray, ends: np.ndarray, ranges: np.ndarray, edges: np.ndarray):
+    """Per bucket: overlap of the intervals with the (merged) ranges."""
+    total = np.zeros(edges.size - 1)
+    for a, b in ranges:
+        s = np.maximum(starts, a)
+        e = np.minimum(ends, b)
+        ok = e > s
+        if ok.any():
+            total += interval_overlap(s[ok], e[ok], edges)
+    return total
+
+
 def bucket_coverage(
     edges: np.ndarray,
     gaps: Gaps,
     first: float,
     obs_end: float,
     ts: Optional[np.ndarray] = None,
+    exclude=None,
 ) -> BucketCoverage:
     """Time-based coverage per bucket ``[edges[k], edges[k + 1])``.
 
@@ -474,6 +522,8 @@ def bucket_coverage(
         first: Start of the observed period.
         obs_end: End of the observed period.
         ts: Timestamps for the sample counts (optional).
+        exclude: Ranges ``[[start, end], ...]`` that are neither observed nor missing
+            (e.g. excluded test data). Optional.
 
     Returns:
         :class:`BucketCoverage`.
@@ -484,8 +534,20 @@ def bucket_coverage(
     miss_end = np.minimum(gaps.end.astype(np.float64), obs_end)
     valid = miss_end > miss_start
     missing = interval_overlap(miss_start[valid], miss_end[valid], edges)
+    if exclude is not None:
+        ranges = _merged_ranges(exclude)
+        if ranges.size:
+            observed = np.maximum(
+                observed - _subtract(np.array([first]), np.array([max(first, obs_end)]),
+                                     ranges, edges), 0)
+            missing = np.clip(
+                missing - _subtract(miss_start[valid], miss_end[valid], ranges, edges),
+                0, observed)
     if ts is not None:
-        samples = np.diff(np.searchsorted(_as_ticks(ts), edges, side="left")).astype(np.int64)
+        ticks = _as_ticks(ts)
+        # integer edges: comparing int64 ticks with float edges would copy all ticks
+        bounds = np.ceil(edges).astype(ticks.dtype)
+        samples = np.diff(np.searchsorted(ticks, bounds, side="left")).astype(np.int64)
     else:
         samples = np.zeros(edges.size - 1, dtype=np.int64)
     n_gaps = np.diff(np.searchsorted(gaps.start.astype(np.float64), edges, side="left"))

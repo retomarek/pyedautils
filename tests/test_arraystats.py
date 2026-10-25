@@ -292,3 +292,31 @@ class TestBucketCoverage(unittest.TestCase):
         t0 = time.perf_counter()
         find_gaps(ts)
         self.assertLess(time.perf_counter() - t0, 0.5)
+
+
+
+class TestExclusions(unittest.TestCase):
+    def test_excluded_time_is_not_missing(self):
+        day = 24 * HOUR
+        ts = _regular(10 * 144, 10 * MIN)
+        ts = ts[(ts < 3 * day) | (ts >= 4 * day)]  # one day removed (excluded data)
+        gaps = find_gaps(ts)
+        self.assertEqual(gaps.index.size, 1)
+        excluded = [[3 * day - 5 * MIN, 4 * day]]
+        self.assertEqual(gaps.without(excluded).index.size, 0)
+        self.assertEqual(gaps.without([[0, 1]]).index.size, 1)
+        edges = np.array([0, 5 * day, 10 * day], dtype=np.float64)
+        c = bucket_coverage(edges, gaps, ts[0], ts[-1] + 10 * MIN, ts, exclude=excluded)
+        self.assertAlmostEqual(c.coverage[0], 1.0)
+        self.assertAlmostEqual(c.observed[0], 4 * day - 5 * MIN)  # 5 days minus the exclusion
+        plain = bucket_coverage(edges, gaps, ts[0], ts[-1] + 10 * MIN, ts)
+        self.assertLess(plain.coverage[0], 0.81)
+
+    def test_local_interval_with_and_without_duplicates(self):
+        ts = _regular(1000, 10 * MIN)
+        fast = local_interval(ts)
+        dup = np.insert(ts, 500, ts[500])
+        slow = local_interval(dup)
+        self.assertTrue(np.isnan(slow[500]))
+        self.assertEqual(np.nanmax(fast), 10 * MIN)
+        self.assertEqual(fast.size, ts.size - 1)
