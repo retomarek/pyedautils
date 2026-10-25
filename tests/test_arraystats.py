@@ -320,3 +320,38 @@ class TestExclusions(unittest.TestCase):
         self.assertTrue(np.isnan(slow[500]))
         self.assertEqual(np.nanmax(fast), 10 * MIN)
         self.assertEqual(fast.size, ts.size - 1)
+
+
+class TestFindGapsFastPath(unittest.TestCase):
+    """The candidate prefilter must give exactly what the full local estimate gives."""
+
+    @staticmethod
+    def reference(ts, factor=3.0, min_gap=None, block=16):
+        expected = local_interval(ts, block)
+        with np.errstate(invalid="ignore"):
+            return np.flatnonzero(np.diff(ts) > np.maximum(factor * expected, min_gap or 0))
+
+    def test_same_gaps_as_the_full_estimate(self):
+        rng = np.random.default_rng(3)
+        for trial in range(60):
+            n = int(rng.integers(2, 3000))
+            steps = rng.choice([10, 60], size=n - 1) * MIN if trial % 3 else np.full(n - 1, MIN)
+            steps = steps + rng.integers(-5, 5, n - 1) * 1000  # jitter
+            steps[rng.random(n - 1) < 0.02] *= int(rng.integers(2, 50))  # outages
+            steps[rng.random(n - 1) < 0.01] = 0  # duplicates
+            ts = np.r_[0, np.cumsum(np.abs(steps))].astype(np.int64)
+            for block in (4, 16):
+                for min_gap in (None, 30 * MIN):
+                    got = find_gaps(ts, 3.0, min_gap, block)
+                    ref = self.reference(ts, 3.0, min_gap, block)
+                    np.testing.assert_array_equal(got.index, ref)
+                    exp = local_interval(ts, block)[ref]
+                    np.testing.assert_array_equal(got.expected, exp)
+
+    def test_trailing_gap_uses_the_last_local_interval(self):
+        ts = np.r_[np.arange(100) * 10 * MIN, 990 * MIN + np.arange(1, 60) * 60 * MIN]
+        end = int(ts[-1]) + 10 * 60 * MIN
+        gaps = find_gaps(ts, end=end)
+        finite = local_interval(ts)
+        self.assertEqual(gaps.index.tolist(), [ts.size - 1])
+        self.assertEqual(gaps.expected[-1], finite[-1])

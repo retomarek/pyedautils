@@ -299,6 +299,27 @@ def local_interval(ts: np.ndarray, block: int = 16) -> np.ndarray:
     return out
 
 
+def _local_interval_at(dp: np.ndarray, at: np.ndarray, block: int) -> np.ndarray:
+    """:func:`local_interval` only for the positive steps ``at`` (indices into the
+    positive time differences ``dp``): medians are computed just for the blocks
+    around them, which makes a sparse query much cheaper than the full estimate."""
+    if at.size == 0:
+        return np.empty(0, dtype=np.float64)
+    if dp.size < 2 * block:
+        return np.full(at.size, float(np.median(dp)))
+    k, rest = divmod(dp.size, block)
+    n_blocks = k + 1 if rest >= block // 2 else k
+    own = np.minimum(at // block, n_blocks - 1)
+    needed = np.unique(np.clip(np.concatenate([own - 1, own, own + 1]), 0, n_blocks - 1))
+    medians = np.empty(n_blocks)
+    for j in needed.tolist():  # the last block also takes a short remainder
+        stop = dp.size if j == n_blocks - 1 else (j + 1) * block
+        medians[j] = np.median(dp[j * block : stop])
+    lo = medians[np.maximum(own - 1, 0)]
+    hi = medians[np.minimum(own + 1, n_blocks - 1)]
+    return np.maximum(np.maximum(lo, medians[own]), hi)
+
+
 class Gaps(NamedTuple):
     """Gaps of a series: ``index`` i means between ``ts[i]`` and ``ts[i + 1]``
     (``len(ts) - 1`` for a trailing gap up to ``end``)."""
@@ -356,19 +377,32 @@ def find_gaps(
     if n < 2:
         empty_f = np.empty(0, dtype=np.float64)
         return Gaps(np.empty(0, dtype=np.int64), ticks[:0], ticks[:0], empty_f)
-    if expected_interval is not None:
-        expected = np.full(n - 1, float(expected_interval))
-    else:
-        expected = local_interval(ticks, block)
     d = np.diff(ticks)
-    threshold = np.maximum(factor * expected, min_gap or 0)
-    with np.errstate(invalid="ignore"):
-        idx = np.flatnonzero(d > threshold).astype(np.int64)
-    starts, ends, exp = ticks[idx], ticks[idx + 1], expected[idx]
+    floor = min_gap or 0
+    last: Optional[float] = None
+    if expected_interval is not None:
+        idx = np.flatnonzero(d > max(factor * float(expected_interval), floor)).astype(np.int64)
+        exp = np.full(idx.size, float(expected_interval))
+        last = float(expected_interval)
+    else:
+        if (d < 0).any():
+            raise ValueError("ts must be sorted")
+        pos = d > 0
+        all_pos = bool(pos.all())
+        dp = (d if all_pos else d[pos]).astype(np.float64)
+        if dp.size == 0:
+            idx, exp = np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
+        else:
+            # every local interval is at least the shortest step, so only steps longer
+            # than factor * shortest step can be gaps: check just those (fast path)
+            cand = np.flatnonzero(d > max(factor * float(dp.min()), floor)).astype(np.int64)
+            rank = cand if all_pos else np.cumsum(pos)[cand] - 1
+            exp_c = _local_interval_at(dp, rank, block)
+            keep = d[cand] > np.maximum(factor * exp_c, floor)
+            idx, exp = cand[keep], exp_c[keep]
+            last = float(_local_interval_at(dp, np.array([dp.size - 1]), block)[0])
+    starts, ends = ticks[idx], ticks[idx + 1]
     if end is not None:
-        finite = expected[np.isfinite(expected)]
-        last = float(expected_interval) if expected_interval is not None else (
-            float(finite[-1]) if finite.size else None)
         if last is not None and end - ticks[-1] > max(factor * last, min_gap or 0):
             idx = np.append(idx, n - 1)
             starts = np.append(starts, ticks[-1])
