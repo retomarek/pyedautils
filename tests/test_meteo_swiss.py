@@ -194,6 +194,16 @@ class TestDownloadData(unittest.TestCase):
         self.assertTrue(df.empty)
         self.assertEqual(list(df.columns), ["rain"])
 
+    @patch('pyedautils.weather.meteo_swiss.pd.read_csv')
+    @patch('pyedautils.weather.meteo_swiss.requests.get')
+    def test_no_matching_files(self, mock_get, mock_read_csv):
+        mock_get.return_value = _mock_response(json_data={"assets": {"ogd-smn_klo_m.csv": {"href": "x"}}})
+        df = download_data("KLO", "2025-01-01", "2025-01-02", sensors=["temp"], tz="Europe/Zurich")
+        self.assertTrue(df.empty)
+        self.assertEqual(list(df.columns), ["temp"])
+        self.assertEqual(str(df.index.tz), "Europe/Zurich")
+        mock_read_csv.assert_not_called()
+
     @patch('pyedautils.weather.meteo_swiss.requests.get', return_value=_mock_response(status_code=404))
     def test_unknown_station(self, mock_get):
         with self.assertRaises(ValueError):
