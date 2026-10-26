@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from pyedautils import arraystats
+
 
 def calc_gap_duration(
     df: pd.DataFrame,
@@ -367,13 +369,13 @@ def detect_gaps(
     if len(ts) < 2:
         return pd.DataFrame(columns=["gap_start", "gap_end", "gap_duration_h"])
 
-    diffs = ts.diff()
-    gap_mask = diffs > min_gap
-    gap_starts = ts[gap_mask.shift(-1, fill_value=False)].values
-    gap_ends = ts[gap_mask].values
-
+    starts, ends = arraystats.detect_gaps(
+        ts.to_numpy(dtype="datetime64[ns]"),
+        expected_interval=min_gap.value,
+        factor=1.0,
+    )
     records = []
-    for start, end in zip(gap_starts, gap_ends):
+    for start, end in zip(starts, ends):
         duration_h = (end - start) / pd.Timedelta(hours=1)
         records.append({"gap_start": start, "gap_end": end,
                         "gap_duration_h": round(duration_h, 2)})
@@ -413,22 +415,26 @@ def detect_stuck(
     if work.empty:
         return pd.DataFrame(columns=out_cols)
 
-    work["_grp"] = (work["value"] != work["value"].shift()).cumsum()
-    runs = (
-        work.groupby("_grp")
-        .agg(
-            stuck_start=("timestamp", "first"),
-            stuck_end=("timestamp", "last"),
-            stuck_value=("value", "first"),
-            n_repeats=("value", "count"),
-        )
-        .reset_index(drop=True)
+    timestamps = pd.DatetimeIndex(work["timestamp"]).as_unit("ns")
+    start_ticks, end_ticks, run_value, n_repeats = arraystats.detect_stuck(
+        work["value"].to_numpy(dtype=float),
+        timestamps.asi8,
+        min_repeats=min_repeats,
+        min_duration=min_duration_h * pd.Timedelta(hours=1).value,
     )
-    runs["stuck_duration_h"] = (runs["stuck_end"] - runs["stuck_start"]) / pd.Timedelta(hours=1)
-    stuck = runs[
-        (runs["n_repeats"] >= min_repeats) & (runs["stuck_duration_h"] >= min_duration_h)
-    ].copy()
-    stuck["stuck_duration_h"] = stuck["stuck_duration_h"].round(2)
+
+    def to_timestamps(ticks):
+        index = pd.DatetimeIndex(ticks.astype("datetime64[ns]"))
+        return index.tz_localize("UTC").tz_convert(timestamps.tz) if timestamps.tz else index
+
+    stuck = pd.DataFrame({
+        "stuck_start": to_timestamps(start_ticks),
+        "stuck_end": to_timestamps(end_ticks),
+        "stuck_value": run_value,
+        "n_repeats": n_repeats,
+    })
+    stuck["stuck_duration_h"] = ((stuck["stuck_end"] - stuck["stuck_start"])
+                                 / pd.Timedelta(hours=1)).round(2)
     return stuck[out_cols].reset_index(drop=True)
 
 

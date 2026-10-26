@@ -8,6 +8,7 @@ chapters:
     sections:
       - file: api/data_io
       - file: api/data_quality
+      - file: api/arraystats
       - file: api/comfort
       - file: api/psychrometrics
       - file: api/energy_signature

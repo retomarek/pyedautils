@@ -154,6 +154,79 @@ def get_smn_stations(timeout: int = 60) -> pd.DataFrame:
         raise ValueError(f"Error in getting station list: {e}") from e
 
 
+#: ``parameter_granularity`` in the parameter metadata -> ``granularity`` of :func:`download_data`
+GRANULARITY_CODES = {"T": "t", "H": "h", "D": "d"}
+
+
+def get_smn_parameters(timeout: int = 60) -> pd.DataFrame:
+    """
+    Gets the parameter list (metadata) of the SwissMetNet data of the MeteoSwiss OGD.
+
+    Args:
+        timeout (int): Request timeout in seconds. Default 60.
+
+    Returns:
+        pd.DataFrame: One row per parameter with ``parameter_shortname`` (the ID
+        used by :func:`download_data`, e.g. "tre200h0"), descriptions and groups
+        in de/fr/it/en, ``parameter_granularity`` (T = 10 min, H = hourly,
+        D = daily, M = monthly, Y = yearly), ``parameter_datatype`` and
+        ``parameter_unit``.
+    """
+    try:
+        text = _get_text(f"{SMN_BASE_URL}/ogd-smn_meta_parameters.csv", timeout)
+        return pd.read_csv(io.StringIO(text), sep=";")
+    except Exception as e:
+        raise ValueError(f"Error in getting parameter list: {e}") from e
+
+
+def get_station_parameters(
+    station: str, granularity: str = None, lang: str = "en", timeout: int = 60
+) -> pd.DataFrame:
+    """
+    Lists the parameters a SwissMetNet station measures, with description and unit.
+
+    Args:
+        station (str): Station abbreviation, e.g. "LUZ".
+        granularity (str, optional): Only parameters of this resolution: "t"
+            (10 minutes), "h" (hourly) or "d" (daily). Default: all.
+        lang (str, optional): Language of description and group: "de", "fr",
+            "it" or "en". Default "en".
+        timeout (int): Request timeout in seconds. Default 60.
+
+    Returns:
+        pd.DataFrame: Columns ``parameter`` (ID for :func:`download_data`),
+        ``description``, ``group``, ``unit``, ``granularity`` ("t", "h", "d",
+        "m", "y"), ``data_since`` and ``data_till`` (NaT while still measured),
+        sorted by group and description. Empty if the station is unknown.
+    """
+    if lang not in ("de", "fr", "it", "en"):
+        raise ValueError(f"Unknown language: {lang}. Must be one of de, fr, it, en")
+    try:
+        text = _get_text(f"{SMN_BASE_URL}/ogd-smn_meta_datainventory.csv", timeout)
+        inventory = pd.read_csv(io.StringIO(text), sep=";")
+    except Exception as e:
+        raise ValueError(f"Error in getting data inventory: {e}") from e
+    params = get_smn_parameters(timeout)
+    rows = inventory[inventory["station_abbr"] == station.upper()]
+    df = rows.merge(params, on="parameter_shortname", how="inner")
+    df = pd.DataFrame(
+        {
+            "parameter": df["parameter_shortname"],
+            "description": df[f"parameter_description_{lang}"],
+            "group": df[f"parameter_group_{lang}"],
+            "unit": df["parameter_unit"],
+            "granularity": df["parameter_granularity"].str.lower(),
+            "data_since": pd.to_datetime(df["data_since"], format="%d.%m.%Y %H:%M"),
+            "data_till": pd.to_datetime(df["data_till"], format="%d.%m.%Y %H:%M"),
+        }
+    )
+    if granularity is not None:
+        if granularity not in GRANULARITY_CODES.values():
+            raise ValueError(f"Unknown granularity: {granularity}. Must be one of t, h, d")
+        df = df[df["granularity"] == granularity]
+    return df.sort_values(["group", "description"]).reset_index(drop=True)
+
+
 def _list_data_files(station: str) -> dict:
     """Returns {file name: url} of all OGD data files of a station."""
     for collection in OGD_COLLECTIONS:
