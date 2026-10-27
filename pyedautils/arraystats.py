@@ -19,6 +19,11 @@ import numpy as np
 __all__ = [
     "Description",
     "describe",
+    "HOLD_MODES",
+    "hold_weights",
+    "weighted_stats",
+    "held_at",
+    "step_bucket_mean",
     "infer_interval",
     "gap_indices",
     "detect_gaps",
@@ -88,12 +93,173 @@ def infer_interval(ts: np.ndarray) -> Optional[float]:
     return float(np.median(diffs))
 
 
+#: How a value is read between two samples: ``step`` holds until the next sample
+#: (setpoints, states, change-of-value data), ``step-back`` holds until its own
+#: timestamp (counter readings), ``linear`` is a continuous signal.
+HOLD_MODES = ("step", "step-back", "linear")
+
+#: A cap on the time a sample stands for: one number for all, or one per sample
+#: (``inf`` where a hold is unlimited), e.g. the expected interval at a gap start.
+MaxHold = Union[None, float, np.ndarray]
+
+
+def _capped(dt: np.ndarray, max_hold: MaxHold, at: slice) -> np.ndarray:
+    """``dt`` capped by ``max_hold`` (a number, or the per-sample caps ``at``)."""
+    if max_hold is None:
+        return dt
+    cap = np.asarray(max_hold, dtype=np.float64)
+    return np.minimum(dt, cap[at] if cap.ndim else cap)
+
+
+def hold_weights(
+    ts: np.ndarray,
+    hold: str,
+    start: Optional[float] = None,
+    end: Optional[float] = None,
+    expected_interval: Optional[float] = None,
+    max_hold: MaxHold = None,
+) -> np.ndarray:
+    """The time each sample stands for, as a weight per sample.
+
+    Args:
+        ts: Sorted timestamps.
+        hold: ``step``: a sample holds until the next one, the last one until
+            ``end`` (else one ``expected_interval``). ``step-back``: a sample holds
+            from the previous one, the first one from ``start``. ``linear``: a sample
+            stands for half the interval to each neighbour (trapezoid rule).
+        start, end: Bounds of the analysed range for the first / last hold.
+        expected_interval: Fallback for the open end; inferred when ``None``.
+        max_hold: Cap on a hold (a number or one cap per sample, ``inf`` = none):
+            a value does not hold across an outage.
+
+    Returns:
+        Float weights, same length as ``ts`` (zeros for a single sample without
+        bounds).
+    """
+    if hold not in HOLD_MODES:
+        raise ValueError(f"hold must be one of {HOLD_MODES}, not {hold!r}")
+    ticks = _as_ticks(ts).astype(np.float64)
+    n = ticks.size
+    if n == 0:
+        return np.empty(0)
+    interval = expected_interval if expected_interval is not None else infer_interval(ticks)
+    fallback = float(interval) if interval else 0.0
+    dt = np.diff(ticks)
+    if hold == "step":
+        tail = max(float(end) - ticks[-1], 0.0) if end is not None else fallback
+        w = np.append(_capped(dt, max_hold, slice(0, n - 1)), _capped(np.array([tail]), max_hold, slice(n - 1, n)))
+    elif hold == "step-back":
+        head = max(ticks[0] - float(start), 0.0) if start is not None else fallback
+        w = np.insert(_capped(dt, max_hold, slice(1, n)), 0, _capped(np.array([head]), max_hold, slice(0, 1)))
+    else:
+        dt = _capped(dt, max_hold, slice(0, n - 1))
+        w = np.zeros(n)
+        w[:-1] += dt / 2
+        w[1:] += dt / 2
+    return w
+
+
+def weighted_stats(values: np.ndarray, weights: np.ndarray) -> dict:
+    """Mean, population std, median and the 5th / 95th percentile of ``values``
+    weighted by ``weights`` (e.g. :func:`hold_weights`): the statistics of the
+    signal over time rather than of the samples. Non-finite values and
+    non-positive weights are ignored; all ``nan`` without any weight.
+
+    Percentiles are the inverse of the weighted cumulative distribution (the smallest
+    value the signal is at or below for the share ``p`` of the weight): exact for a
+    step signal, within one sample of ``numpy.percentile`` for equal weights.
+    """
+    values = np.asarray(values, dtype=np.float64)
+    weights = np.asarray(weights, dtype=np.float64)
+    if values.shape != weights.shape:
+        raise ValueError("values and weights must have the same length")
+    keep = np.isfinite(values) & np.isfinite(weights) & (weights > 0)
+    nan = float("nan")
+    if not keep.any():
+        return {"mean": nan, "std": nan, "median": nan, "p05": nan, "p95": nan}
+    v, w = values[keep], weights[keep]
+    total = float(w.sum())
+    mean = float((v * w).sum() / total)
+    std = float(np.sqrt(((v - mean) ** 2 * w).sum() / total))
+    order = np.argsort(v, kind="stable")
+    v, w = v[order], w[order]
+    cum = np.cumsum(w)
+    at = np.minimum(np.searchsorted(cum, np.array([0.05, 0.5, 0.95]) * total, side="left"), v.size - 1)
+    p05, median, p95 = v[at]
+    return {"mean": mean, "std": std, "median": float(median), "p05": float(p05), "p95": float(p95)}
+
+
+def held_at(ts: np.ndarray, values: np.ndarray, at: np.ndarray, max_hold: MaxHold = None) -> np.ndarray:
+    """The value a step series holds at each time in ``at``: the last sample at or
+    before it, ``nan`` before the first sample or once the hold is capped by
+    ``max_hold`` (a number or one cap per sample). Non-finite samples do not hold."""
+    ticks = _as_ticks(ts).astype(np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    at = _as_ticks(np.asarray(at)).astype(np.float64)
+    finite = np.isfinite(values)
+    ticks, values = ticks[finite], values[finite]
+    out = np.full(at.shape, np.nan)
+    if ticks.size == 0:
+        return out
+    pos = np.searchsorted(ticks, at, side="right") - 1
+    ok = pos >= 0
+    src = np.clip(pos, 0, ticks.size - 1)
+    if max_hold is not None:
+        cap = np.asarray(max_hold, dtype=np.float64)
+        cap = cap[finite][src] if cap.ndim else cap
+        ok &= at - ticks[src] < cap
+    out[ok] = values[src[ok]]
+    return out
+
+
+def step_bucket_mean(
+    ts: np.ndarray, values: np.ndarray, edges: np.ndarray, max_hold: MaxHold = None
+) -> np.ndarray:
+    """Time-weighted mean of a step series (each sample holds until the next one) in
+    the buckets ``[edges[i], edges[i + 1])``: the integral of the held value over the
+    time the bucket is covered, divided by that time; ``nan`` where nothing holds.
+    ``max_hold`` caps a hold (a number or one cap per sample), the last sample holds
+    until the last edge at most."""
+    ticks = _as_ticks(ts).astype(np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    edges = _as_ticks(np.asarray(edges)).astype(np.float64)
+    finite = np.isfinite(values)
+    ticks, values = ticks[finite], values[finite]
+    out = np.full(max(edges.size - 1, 0), np.nan)
+    if ticks.size == 0 or edges.size < 2:
+        return out
+    cap = max_hold
+    if cap is not None and np.ndim(cap):
+        cap = np.asarray(cap, dtype=np.float64)[finite]
+    hold = hold_weights(ticks, "step", end=float(edges[-1]), max_hold=cap)
+    # cumulative integral and covered time up to each sample's start
+    cum_v = np.concatenate(([0.0], np.cumsum(values * hold)))
+    cum_t = np.concatenate(([0.0], np.cumsum(hold)))
+
+    def upto(t: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+        k = np.searchsorted(ticks, t, side="right") - 1
+        src = np.clip(k, 0, ticks.size - 1)
+        into = np.clip(t - ticks[src], 0.0, hold[src])
+        into[k < 0] = 0.0
+        base = np.where(k < 0, 0, k)
+        return cum_v[base] + values[src] * into, cum_t[base] + into
+
+    v_hi, t_hi = upto(edges[1:])
+    v_lo, t_lo = upto(edges[:-1])
+    covered = t_hi - t_lo
+    np.divide(v_hi - v_lo, covered, out=out, where=covered > 0)
+    return out
+
+
 def describe(
     values: np.ndarray,
     ts: Optional[np.ndarray] = None,
     expected_interval: Optional[float] = None,
     start: Optional[float] = None,
     end: Optional[float] = None,
+    hold: Optional[str] = None,
+    max_hold: MaxHold = None,
+    prior: Optional[float] = None,
 ) -> Description:
     """Descriptive statistics of a series, ignoring ``NaN`` values.
 
@@ -107,6 +273,14 @@ def describe(
             Defaults to the first timestamp.
         end: End of the analysed range (exclusive) for ``coverage``.
             Defaults to the last timestamp plus one interval.
+        hold: One of :data:`HOLD_MODES`: mean, std, median and the percentiles are
+            then weighted by the time each sample stands for (:func:`hold_weights`),
+            i.e. they describe the signal over time, not the samples. ``None``:
+            plain sample statistics.
+        max_hold: Cap on a hold, see :func:`hold_weights`.
+        prior: For ``hold="step"``: the value holding at ``start`` from before the
+            range (the sample before the first one). It weighs in from ``start`` to
+            the first timestamp but is not counted in ``n``, ``min``, ``max``.
 
     Returns:
         :class:`Description` with n, missing count, coverage (0..1, ``nan``
@@ -161,6 +335,16 @@ def describe(
             ts_last=int(valid_ticks[-1]),
         )
     interval = expected_interval if expected_interval is not None else infer_interval(ticks)
+    if hold is not None and n > 0:
+        caps = np.asarray(max_hold, dtype=np.float64)[finite] if np.ndim(max_hold) else max_hold
+        weights = hold_weights(valid_ticks, hold, start, end, interval, caps)
+        weighted_values = valid
+        if hold == "step" and prior is not None and np.isfinite(prior) and start is not None:
+            lead = float(valid_ticks[0]) - float(start)
+            if lead > 0:
+                weighted_values = np.insert(valid, 0, prior)
+                weights = np.insert(weights, 0, lead)
+        result.update(weighted_stats(weighted_values, weights))  # type: ignore[call-arg]
     if interval is None or interval <= 0:
         return result
     range_start = float(start) if start is not None else float(ticks[0]) if ticks.size else None
