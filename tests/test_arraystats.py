@@ -102,6 +102,10 @@ class TestDescribe(unittest.TestCase):
         self.assertEqual(d["n"], 1)
         self.assertEqual(d["min"], 10.0)  # the prior sample is not one of the range
         self.assertAlmostEqual(d["mean"], 5.0)
+        inside = describe(np.array([]), np.array([], dtype=np.int64), hold="step", start=0, end=MIN, prior=7.0)
+        self.assertEqual(inside["n"], 0)
+        self.assertAlmostEqual(inside["mean"], 7.0)  # a range inside one hold
+        self.assertTrue(math.isnan(describe(np.array([]), np.array([]), hold="step", start=0, prior=7.0)["mean"]))
 
     def test_max_hold_cuts_an_outage(self):
         ts = np.array([0, 10, 1000], dtype=np.int64) * MIN  # the 10-minute value stops holding

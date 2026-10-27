@@ -335,16 +335,18 @@ def describe(
             ts_last=int(valid_ticks[-1]),
         )
     interval = expected_interval if expected_interval is not None else infer_interval(ticks)
-    if hold is not None and n > 0:
+    if hold is not None and (n > 0 or prior is not None):
         caps = np.asarray(max_hold, dtype=np.float64)[finite] if np.ndim(max_hold) else max_hold
-        weights = hold_weights(valid_ticks, hold, start, end, interval, caps)
+        weights = hold_weights(valid_ticks, hold, start, end, interval, caps) if n else np.empty(0)
         weighted_values = valid
         if hold == "step" and prior is not None and np.isfinite(prior) and start is not None:
-            lead = float(valid_ticks[0]) - float(start)
-            if lead > 0:
+            # the prior value holds from start to the first sample (or to end: no sample at all)
+            until = float(valid_ticks[0]) if n else (float(end) if end is not None else None)
+            if until is not None and until > float(start):
                 weighted_values = np.insert(valid, 0, prior)
-                weights = np.insert(weights, 0, lead)
-        result.update(weighted_stats(weighted_values, weights))  # type: ignore[call-arg]
+                weights = np.insert(weights, 0, until - float(start))
+        if weights.size:
+            result.update(weighted_stats(weighted_values, weights))  # type: ignore[call-arg]
     if interval is None or interval <= 0:
         return result
     range_start = float(start) if start is not None else float(ticks[0]) if ticks.size else None
