@@ -142,6 +142,7 @@ def hold_weights(
     n = ticks.size
     if n == 0:
         return np.empty(0)
+
     def fallback() -> float:  # one interval for an open end (inferred only when needed)
         interval = expected_interval if expected_interval is not None else infer_interval(ticks)
         return float(interval) if interval else 0.0
@@ -252,6 +253,25 @@ def step_bucket_mean(
     return out
 
 
+def _with_prior(
+    values: np.ndarray,
+    ticks: np.ndarray,
+    weights: np.ndarray,
+    hold: str,
+    prior: Optional[float],
+    start: Optional[float],
+    end: Optional[float],
+) -> "tuple[np.ndarray, np.ndarray]":
+    """Values and weights with the prior value of a step series in front: it holds from
+    ``start`` to the first sample (or to ``end`` when the range has no sample at all)."""
+    if hold != "step" or prior is None or not np.isfinite(prior) or start is None:
+        return values, weights
+    until = float(ticks[0]) if ticks.size else (float(end) if end is not None else None)
+    if until is None or until <= float(start):
+        return values, weights
+    return np.insert(values, 0, prior), np.insert(weights, 0, until - float(start))
+
+
 def describe(
     values: np.ndarray,
     ts: Optional[np.ndarray] = None,
@@ -339,15 +359,9 @@ def describe(
     if hold is not None and (n > 0 or prior is not None):
         caps = np.asarray(max_hold, dtype=np.float64)[finite] if np.ndim(max_hold) else max_hold
         weights = hold_weights(valid_ticks, hold, start, end, interval, caps) if n else np.empty(0)
-        weighted_values = valid
-        if hold == "step" and prior is not None and np.isfinite(prior) and start is not None:
-            # the prior value holds from start to the first sample (or to end: no sample at all)
-            until = float(valid_ticks[0]) if n else (float(end) if end is not None else None)
-            if until is not None and until > float(start):
-                weighted_values = np.insert(valid, 0, prior)
-                weights = np.insert(weights, 0, until - float(start))
-        if weights.size:
-            result.update(weighted_stats(weighted_values, weights))  # type: ignore[call-arg]
+        weighted = _with_prior(valid, valid_ticks, weights, hold, prior, start, end)
+        if weighted[1].size:
+            result.update(weighted_stats(*weighted))  # type: ignore[call-arg]
     if interval is None or interval <= 0:
         return result
     range_start = float(start) if start is not None else float(ticks[0]) if ticks.size else None
