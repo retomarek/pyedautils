@@ -24,6 +24,10 @@ __all__ = [
     "weighted_stats",
     "held_at",
     "step_bucket_mean",
+    "bucket_reduce",
+    "step_bucket_reduce",
+    "bucket_reduce",
+    "step_bucket_reduce",
     "infer_interval",
     "gap_indices",
     "detect_gaps",
@@ -270,6 +274,120 @@ def _with_prior(
     if until is None or until <= float(start):
         return values, weights
     return np.insert(values, 0, prior), np.insert(weights, 0, until - float(start))
+
+
+def bucket_reduce(index: np.ndarray, values: np.ndarray, n: int, fn: str) -> np.ndarray:
+    """One value per bucket ``0 .. n-1`` from samples with their bucket ``index``
+    (sorted): ``mean``, ``min``, ``max``, ``first`` or ``last`` of the finite samples
+    in the bucket, ``nan`` for a bucket without one. Samples outside ``0 .. n-1``
+    are ignored."""
+    index = np.asarray(index)
+    values = np.asarray(values, dtype=np.float64)
+    out = np.full(n, np.nan)
+    keep = np.isfinite(values) & (index >= 0) & (index < n)
+    index, values = index[keep], values[keep]
+    if index.size == 0:
+        return out
+    if fn == "mean":
+        sums = np.bincount(index, weights=values, minlength=n)
+        counts = np.bincount(index, minlength=n)
+        np.divide(sums, counts, out=out, where=counts > 0)
+        return out
+    if fn == "last":
+        out[index] = values  # later samples overwrite earlier ones
+        return out
+    starts = np.flatnonzero(np.concatenate(([True], np.diff(index) != 0)))
+    if fn == "first":
+        out[index[starts]] = values[starts]
+    elif fn in ("min", "max"):
+        reduce = np.minimum if fn == "min" else np.maximum
+        out[index[starts]] = reduce.reduceat(values, starts)
+    else:
+        raise ValueError(f"fn must be mean, min, max, first or last, not {fn!r}")
+    return out
+
+
+def step_bucket_reduce(
+    ts: np.ndarray, values: np.ndarray, edges: np.ndarray, fn: str, max_hold: MaxHold = None
+) -> np.ndarray:
+    """One value per bucket ``[edges[i], edges[i + 1])`` of a step series (each sample
+    holds until the next one, for ``max_hold`` at most): ``mean`` is time-weighted
+    (:func:`step_bucket_mean`); ``min`` / ``max`` take the samples in the bucket and
+    the value entering it; ``first`` is the entering value, else the first sample;
+    ``last`` the last sample, else the value held at the bucket's end. A bucket is
+    ``nan`` only when nothing holds in it."""
+    if fn == "mean":
+        return step_bucket_mean(ts, values, edges, max_hold)
+    ticks = _as_ticks(ts).astype(np.float64)
+    edges = _as_ticks(np.asarray(edges)).astype(np.float64)
+    n = max(edges.size - 1, 0)
+    if n == 0:
+        return np.full(0, np.nan)
+    sampled = bucket_reduce(np.searchsorted(edges, ticks, side="right") - 1, values, n, fn)
+    if fn == "last":
+        at_end = held_at(ts, values, np.nextafter(edges[1:], -np.inf), max_hold)
+        return np.where(np.isfinite(sampled), sampled, at_end)
+    entering = held_at(ts, values, edges[:-1], max_hold)
+    if fn == "first":
+        return np.where(np.isfinite(entering), entering, sampled)
+    return np.fmin(sampled, entering) if fn == "min" else np.fmax(sampled, entering)
+
+
+def bucket_reduce(index: np.ndarray, values: np.ndarray, n: int, fn: str) -> np.ndarray:
+    """One value per bucket ``0 .. n-1`` from samples with their bucket ``index``
+    (sorted): ``mean``, ``min``, ``max``, ``first`` or ``last`` of the finite samples
+    in the bucket, ``nan`` for a bucket without one. Samples outside ``0 .. n-1``
+    are ignored."""
+    index = np.asarray(index)
+    values = np.asarray(values, dtype=np.float64)
+    out = np.full(n, np.nan)
+    keep = np.isfinite(values) & (index >= 0) & (index < n)
+    index, values = index[keep], values[keep]
+    if index.size == 0:
+        return out
+    if fn == "mean":
+        sums = np.bincount(index, weights=values, minlength=n)
+        counts = np.bincount(index, minlength=n)
+        np.divide(sums, counts, out=out, where=counts > 0)
+        return out
+    if fn == "last":
+        out[index] = values  # later samples overwrite earlier ones
+        return out
+    starts = np.flatnonzero(np.concatenate(([True], np.diff(index) != 0)))
+    if fn == "first":
+        out[index[starts]] = values[starts]
+    elif fn in ("min", "max"):
+        reduce = np.minimum if fn == "min" else np.maximum
+        out[index[starts]] = reduce.reduceat(values, starts)
+    else:
+        raise ValueError(f"fn must be mean, min, max, first or last, not {fn!r}")
+    return out
+
+
+def step_bucket_reduce(
+    ts: np.ndarray, values: np.ndarray, edges: np.ndarray, fn: str, max_hold: MaxHold = None
+) -> np.ndarray:
+    """One value per bucket ``[edges[i], edges[i + 1])`` of a step series (each sample
+    holds until the next one, for ``max_hold`` at most): ``mean`` is time-weighted
+    (:func:`step_bucket_mean`); ``min`` / ``max`` take the samples in the bucket and
+    the value entering it; ``first`` is the entering value, else the first sample;
+    ``last`` the last sample, else the value held at the bucket's end. A bucket is
+    ``nan`` only when nothing holds in it."""
+    if fn == "mean":
+        return step_bucket_mean(ts, values, edges, max_hold)
+    ticks = _as_ticks(ts).astype(np.float64)
+    edges = _as_ticks(np.asarray(edges)).astype(np.float64)
+    n = max(edges.size - 1, 0)
+    if n == 0:
+        return np.full(0, np.nan)
+    sampled = bucket_reduce(np.searchsorted(edges, ticks, side="right") - 1, values, n, fn)
+    if fn == "last":
+        at_end = held_at(ts, values, np.nextafter(edges[1:], -np.inf), max_hold)
+        return np.where(np.isfinite(sampled), sampled, at_end)
+    entering = held_at(ts, values, edges[:-1], max_hold)
+    if fn == "first":
+        return np.where(np.isfinite(entering), entering, sampled)
+    return np.fmin(sampled, entering) if fn == "min" else np.fmax(sampled, entering)
 
 
 def describe(

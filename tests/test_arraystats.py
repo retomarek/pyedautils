@@ -15,7 +15,11 @@ from pyedautils.arraystats import (
     detect_gaps,
     held_at,
     hold_weights,
+    bucket_reduce,
+    bucket_reduce,
     step_bucket_mean,
+    step_bucket_reduce,
+    step_bucket_reduce,
     weighted_stats,
     gap_indices,
     detect_stuck,
@@ -163,6 +167,68 @@ class TestHoldWeights(unittest.TestCase):
         np.testing.assert_allclose(capped, [2, 4, np.nan, 8, np.nan])  # 4 holds 10..20, 8 30..40
         self.assertEqual(step_bucket_mean(ts, values, edges[:1]).size, 0)
         self.assertTrue(np.isnan(step_bucket_mean(ts, np.full(3, np.nan), edges)).all())
+
+    def test_bucket_reduce(self):
+        index = np.array([0, 0, 2, 2, 2, 5])
+        values = np.array([1.0, 3.0, np.nan, 5.0, 4.0, 9.0])
+        nan = np.nan
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "mean"), [2, nan, 4.5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "min"), [1, nan, 4, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "max"), [3, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "first"), [1, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "last"), [3, nan, 4, nan])
+        with self.assertRaises(ValueError):
+            bucket_reduce(index, values, 4, "median")
+
+    def test_step_bucket_reduce(self):
+        # a setpoint changed on the 5th, 12th and 20th of a 31-day month, monthly buckets
+        day = 24 * 60 * MIN
+        ts = np.array([5, 12, 20]) * day
+        values = np.array([20.0, 22.0, 21.0])
+        edges = np.array([0, 31 * day, 62 * day])
+        nan = np.nan
+        cap = day  # a value holds a day at most (an outage otherwise)
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last", cap), [21, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "min", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max", cap), [22, nan])
+        np.testing.assert_allclose(step_bucket_reduce(ts, values, edges, "mean", cap), [21, nan])
+        # without a cap the value holds into the next month, which has no sample of its own
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first"), [20, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last"), [21, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max"), [22, 21])
+        self.assertEqual(step_bucket_reduce(ts, values, edges[:1], "max").size, 0)
+
+    def test_bucket_reduce(self):
+        index = np.array([0, 0, 2, 2, 2, 5])
+        values = np.array([1.0, 3.0, np.nan, 5.0, 4.0, 9.0])
+        nan = np.nan
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "mean"), [2, nan, 4.5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "min"), [1, nan, 4, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "max"), [3, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "first"), [1, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "last"), [3, nan, 4, nan])
+        with self.assertRaises(ValueError):
+            bucket_reduce(index, values, 4, "median")
+
+    def test_step_bucket_reduce(self):
+        # a setpoint changed on the 5th, 12th and 20th of a 31-day month, monthly buckets
+        day = 24 * 60 * MIN
+        ts = np.array([5, 12, 20]) * day
+        values = np.array([20.0, 22.0, 21.0])
+        edges = np.array([0, 31 * day, 62 * day])
+        nan = np.nan
+        cap = day  # a value holds a day at most (an outage otherwise)
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last", cap), [21, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "min", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max", cap), [22, nan])
+        np.testing.assert_allclose(step_bucket_reduce(ts, values, edges, "mean", cap), [21, nan])
+        # without a cap the value holds into the next month, which has no sample of its own
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first"), [20, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last"), [21, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max"), [22, 21])
+        self.assertEqual(step_bucket_reduce(ts, values, edges[:1], "max").size, 0)
 
 
 class TestDetectGaps(unittest.TestCase):
