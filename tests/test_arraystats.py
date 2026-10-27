@@ -197,6 +197,7 @@ class TestHoldWeights(unittest.TestCase):
         np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max"), [22, 21])
         self.assertEqual(step_bucket_reduce(ts, values, edges[:1], "max").size, 0)
 
+
 class TestDetectGaps(unittest.TestCase):
     def test_finds_gap(self):
         ts = np.concatenate([np.arange(10), np.arange(30, 40)]).astype(np.int64) * MIN
