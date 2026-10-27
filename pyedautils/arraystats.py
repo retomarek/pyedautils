@@ -142,14 +142,16 @@ def hold_weights(
     n = ticks.size
     if n == 0:
         return np.empty(0)
-    interval = expected_interval if expected_interval is not None else infer_interval(ticks)
-    fallback = float(interval) if interval else 0.0
+    def fallback() -> float:  # one interval for an open end (inferred only when needed)
+        interval = expected_interval if expected_interval is not None else infer_interval(ticks)
+        return float(interval) if interval else 0.0
+
     dt = np.diff(ticks)
     if hold == "step":
-        tail = max(float(end) - ticks[-1], 0.0) if end is not None else fallback
+        tail = max(float(end) - ticks[-1], 0.0) if end is not None else fallback()
         w = np.append(_capped(dt, max_hold, slice(0, n - 1)), _capped(np.array([tail]), max_hold, slice(n - 1, n)))
     elif hold == "step-back":
-        head = max(ticks[0] - float(start), 0.0) if start is not None else fallback
+        head = max(ticks[0] - float(start), 0.0) if start is not None else fallback()
         w = np.insert(_capped(dt, max_hold, slice(1, n)), 0, _capped(np.array([head]), max_hold, slice(0, 1)))
     else:
         dt = _capped(dt, max_hold, slice(0, n - 1))
@@ -181,7 +183,7 @@ def weighted_stats(values: np.ndarray, weights: np.ndarray) -> dict:
     total = float(w.sum())
     mean = float((v * w).sum() / total)
     std = float(np.sqrt(((v - mean) ** 2 * w).sum() / total))
-    order = np.argsort(v, kind="stable")
+    order = np.argsort(v)
     v, w = v[order], w[order]
     cum = np.cumsum(w)
     at = np.minimum(np.searchsorted(cum, np.array([0.05, 0.5, 0.95]) * total, side="left"), v.size - 1)
@@ -244,10 +246,9 @@ def step_bucket_mean(
         base = np.where(k < 0, 0, k)
         return cum_v[base] + values[src] * into, cum_t[base] + into
 
-    v_hi, t_hi = upto(edges[1:])
-    v_lo, t_lo = upto(edges[:-1])
-    covered = t_hi - t_lo
-    np.divide(v_hi - v_lo, covered, out=out, where=covered > 0)
+    v_at, t_at = upto(edges)
+    covered = np.diff(t_at)
+    np.divide(np.diff(v_at), covered, out=out, where=covered > 0)
     return out
 
 
