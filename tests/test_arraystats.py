@@ -412,7 +412,6 @@ class TestBucketCoverage(unittest.TestCase):
         self.assertLess(time.perf_counter() - t0, 0.5)
 
 
-
 class TestExclusions(unittest.TestCase):
     def test_excluded_time_is_not_missing(self):
         day = 24 * HOUR
@@ -473,3 +472,129 @@ class TestFindGapsFastPath(unittest.TestCase):
         finite = local_interval(ts)
         self.assertEqual(gaps.index.tolist(), [ts.size - 1])
         self.assertEqual(gaps.expected[-1], finite[-1])
+
+
+class TestEdgeCases(unittest.TestCase):
+    """Empty inputs, validation errors and the rarely taken branches."""
+
+    def test_weighted_stats_rejects_mismatched_lengths(self):
+        with self.assertRaises(ValueError):
+            weighted_stats(np.ones(3), np.ones(2))
+
+    def test_held_at_without_finite_samples_is_nan(self):
+        got = held_at(np.array([0, MIN]), np.array([np.nan, np.nan]), np.array([0, MIN, 2 * MIN]))
+        self.assertTrue(np.isnan(got).all())
+        self.assertEqual(got.shape, (3,))
+
+    def test_step_bucket_mean_with_per_sample_caps(self):
+        ts = np.array([0, MIN, 2 * MIN, 3 * MIN])
+        values = np.array([1.0, np.nan, 3.0, 5.0])
+        caps = np.array([MIN, MIN, 30_000, MIN], dtype=np.float64)  # cap of the nan sample is dropped
+        got = step_bucket_mean(ts, values, np.array([0, 2 * MIN, 4 * MIN]), max_hold=caps)
+        self.assertAlmostEqual(got[0], 1.0)  # only the first sample holds (one minute)
+        self.assertAlmostEqual(got[1], (3.0 * 30_000 + 5.0 * MIN) / (30_000 + MIN))
+
+    def test_bucket_reduce_without_usable_samples(self):
+        got = bucket_reduce(np.array([5, -1]), np.array([1.0, np.nan]), 3, "mean")
+        self.assertTrue(np.isnan(got).all())
+        self.assertEqual(got.shape, (3,))
+
+    def test_describe_coverage_needs_a_positive_range(self):
+        ts = _regular(10, MIN)
+        d = describe(np.ones(10), ts, expected_interval=MIN, start=10 * MIN, end=5 * MIN)
+        self.assertTrue(math.isnan(d["coverage"]))
+        self.assertEqual(d["ts_first"], 0)
+
+    def test_gap_indices_without_inferable_interval(self):
+        got = gap_indices(np.array([0, 0, 0]))
+        self.assertEqual(got.size, 0)
+        self.assertEqual(got.dtype, np.int64)
+
+    def test_local_interval_degenerate_inputs(self):
+        self.assertEqual(local_interval(np.array([5])).size, 0)
+        self.assertTrue(np.isnan(local_interval(np.array([5, 5, 5]))).all())
+        short = local_interval(np.array([0, MIN, 3 * MIN, 3 * MIN]), block=16)
+        np.testing.assert_array_equal(short, [1.5 * MIN, 1.5 * MIN, np.nan])
+
+    def test_gaps_without_returns_itself_when_nothing_applies(self):
+        gaps = find_gaps(np.r_[_regular(50, MIN), _regular(50, MIN, 100 * MIN)])
+        self.assertEqual(gaps.index.size, 1)
+        self.assertIs(gaps.without([]), gaps)
+        self.assertIs(gaps.without([[5, 1]]), gaps)  # empty ranges are dropped
+        empty = find_gaps(_regular(50, MIN))
+        self.assertIs(empty.without([[0, MIN]]), empty)
+
+    def test_gaps_without_merges_overlapping_ranges(self):
+        ts = np.r_[_regular(50, MIN), _regular(50, MIN, 100 * MIN)]
+        gaps = find_gaps(ts)
+        # neither range alone covers the missing part [50 min, 100 min), merged they do
+        ranges = [[70 * MIN, 100 * MIN], [49 * MIN, 80 * MIN], [200 * MIN, 300 * MIN]]
+        self.assertEqual(gaps.without(ranges).index.size, 0)
+        self.assertEqual(gaps.without(ranges[:1]).index.size, 1)
+
+    def test_find_gaps_with_given_interval(self):
+        ts = np.r_[_regular(50, MIN), _regular(50, MIN, 100 * MIN)]
+        gaps = find_gaps(ts, expected_interval=MIN)
+        self.assertEqual(gaps.index.tolist(), [49])
+        np.testing.assert_array_equal(gaps.expected, [MIN])
+        self.assertEqual(find_gaps(ts, expected_interval=60 * MIN).index.size, 0)
+        trailing = find_gaps(ts, expected_interval=MIN, end=int(ts[-1]) + 10 * MIN)
+        self.assertEqual(trailing.index.tolist(), [49, ts.size - 1])
+
+    def test_find_gaps_validation_and_duplicates_only(self):
+        with self.assertRaises(ValueError):
+            find_gaps(np.array([0, 2 * MIN, MIN]))
+        gaps = find_gaps(np.array([MIN, MIN, MIN]))
+        self.assertEqual(gaps.index.size, 0)
+        self.assertEqual(gaps.expected.size, 0)
+
+    def test_interval_segments_degenerate_inputs(self):
+        self.assertEqual(interval_segments(np.array([0, 0, 0])).n.size, 0)
+        seg = interval_segments(_regular(5, MIN))  # fewer than two blocks
+        self.assertEqual(seg.interval.tolist(), [MIN])
+        self.assertEqual(seg.n.tolist(), [5])
+
+    def test_interval_segments_without_a_long_run_keeps_the_longest(self):
+        # alternating intervals per block: no run reaches min_blocks
+        ts = np.r_[_regular(17, MIN), _regular(16, 10 * MIN, 16 * MIN + 10 * MIN),
+                   _regular(16, MIN, 16 * MIN + 160 * MIN + MIN)]
+        seg = interval_segments(ts, block=16, min_blocks=3)
+        self.assertEqual(seg.n.size, 1)
+        self.assertEqual(seg.n.tolist(), [ts.size])
+
+    def test_interval_segments_leading_short_run_joins_the_first_segment(self):
+        n_lead, n_main = 17, 16 * 5
+        lead = _regular(n_lead, 10 * MIN)
+        main = _regular(n_main, MIN, lead[-1] + MIN)
+        ts = np.r_[lead, main]
+        seg = interval_segments(ts, block=16, min_blocks=3)
+        self.assertEqual(seg.start.tolist(), [0])
+        self.assertEqual(seg.n.tolist(), [ts.size])
+        self.assertAlmostEqual(seg.interval[0], MIN)
+
+    def test_interval_overlap_without_buckets(self):
+        self.assertEqual(interval_overlap(np.array([0.0]), np.array([1.0]), np.array([0.0])).size, 0)
+
+    def test_bucket_coverage_without_timestamps_has_zero_samples(self):
+        ts = _regular(100, MIN)
+        gaps = find_gaps(ts)
+        c = bucket_coverage(np.array([0, 50 * MIN, 100 * MIN]), gaps, 0, 100 * MIN)
+        self.assertEqual(c.samples.tolist(), [0, 0])
+        np.testing.assert_allclose(c.coverage, [1.0, 1.0])
+
+    def test_detect_stuck_without_values(self):
+        starts, ends, vals, repeats = detect_stuck(np.array([np.nan, np.nan]), np.array([0, MIN]))
+        for arr in (starts, ends, vals, repeats):
+            self.assertEqual(arr.size, 0)
+        self.assertEqual(repeats.dtype, np.int64)
+
+    def test_outliers_zscore_constant_series(self):
+        got = outliers_zscore(np.array([2.0, 2.0, np.nan, 2.0]))
+        self.assertFalse(got.any())
+        self.assertEqual(got.shape, (4,))
+
+    def test_outliers_hampel_fills_leading_and_inner_nans(self):
+        values = np.array([np.nan, np.nan, 1.0, 1.0, np.nan, 1.0, 50.0, 1.0, 1.0, np.nan])
+        got = outliers_hampel(values, window=2)
+        self.assertEqual(np.flatnonzero(got).tolist(), [6])
+        self.assertFalse(got[np.isnan(values)].any())
