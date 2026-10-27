@@ -13,6 +13,12 @@ from pyedautils.arraystats import (
     local_interval,
     describe,
     detect_gaps,
+    held_at,
+    hold_weights,
+    bucket_reduce,
+    step_bucket_mean,
+    step_bucket_reduce,
+    weighted_stats,
     gap_indices,
     detect_stuck,
     infer_interval,
@@ -78,6 +84,118 @@ class TestDescribe(unittest.TestCase):
     def test_length_mismatch(self):
         with self.assertRaises(ValueError):
             describe(np.ones(3), np.arange(2))
+
+    def test_step_hold_weights_the_time_not_the_samples(self):
+        # a setpoint: 20 for 50 minutes, 24 for 10 minutes (three quick samples)
+        ts = np.array([0, 50, 52, 54], dtype=np.int64) * MIN
+        values = np.array([20.0, 24.0, 24.0, 24.0])
+        plain = describe(values, ts)
+        self.assertAlmostEqual(plain["mean"], 23.0)
+        d = describe(values, ts, hold="step", start=0, end=60 * MIN)
+        self.assertEqual(d["n"], 4)
+        self.assertAlmostEqual(d["mean"], (20 * 50 + 24 * 10) / 60)
+        self.assertAlmostEqual(d["median"], 20.0)
+        self.assertAlmostEqual(d["p95"], 24.0)
+        self.assertEqual(d["min"], 20.0)
+
+    def test_prior_value_holds_into_the_range(self):
+        ts = np.array([30], dtype=np.int64) * MIN
+        d = describe(np.array([10.0]), ts, hold="step", start=0, end=60 * MIN, prior=0.0)
+        self.assertEqual(d["n"], 1)
+        self.assertEqual(d["min"], 10.0)  # the prior sample is not one of the range
+        self.assertAlmostEqual(d["mean"], 5.0)
+        inside = describe(np.array([]), np.array([], dtype=np.int64), hold="step", start=0, end=MIN, prior=7.0)
+        self.assertEqual(inside["n"], 0)
+        self.assertAlmostEqual(inside["mean"], 7.0)  # a range inside one hold
+        self.assertTrue(math.isnan(describe(np.array([]), np.array([]), hold="step", start=0, prior=7.0)["mean"]))
+
+    def test_max_hold_cuts_an_outage(self):
+        ts = np.array([0, 10, 1000], dtype=np.int64) * MIN  # the 10-minute value stops holding
+        d = describe(np.array([0.0, 100.0, 0.0]), ts, hold="step", end=1010 * MIN, max_hold=10 * MIN)
+        self.assertAlmostEqual(d["mean"], 100 / 3)
+        caps = np.array([np.inf, 20 * MIN, np.inf])
+        d = describe(np.array([0.0, 100.0, 0.0]), ts, hold="step", end=1010 * MIN, max_hold=caps)
+        self.assertAlmostEqual(d["mean"], 2000 / 40)
+
+
+class TestHoldWeights(unittest.TestCase):
+    def test_modes(self):
+        ts = np.array([0, 10, 30], dtype=np.int64) * MIN
+        np.testing.assert_allclose(hold_weights(ts, "step", end=40 * MIN), np.array([10, 20, 10]) * MIN)
+        np.testing.assert_allclose(hold_weights(ts, "step"), np.array([10, 20, 15]) * MIN)  # median
+        np.testing.assert_allclose(hold_weights(ts, "step-back", start=-5 * MIN), np.array([5, 10, 20]) * MIN)
+        np.testing.assert_allclose(hold_weights(ts, "linear"), np.array([5, 15, 10]) * MIN)
+        self.assertEqual(hold_weights(np.array([], dtype=np.int64), "step").size, 0)
+        with self.assertRaises(ValueError):
+            hold_weights(ts, "spline")
+
+    def test_weighted_stats(self):
+        s = weighted_stats(np.array([1.0, 2.0, np.nan, 4.0]), np.array([1.0, 1.0, 5.0, 0.0]))
+        self.assertAlmostEqual(s["mean"], 1.5)
+        self.assertAlmostEqual(s["std"], 0.5)
+        self.assertAlmostEqual(s["median"], 1.0)  # at or below 1 for half the weight
+        rng = np.random.default_rng(1)
+        values = rng.normal(size=5000)
+        s = weighted_stats(values, np.ones(values.size))
+        self.assertAlmostEqual(s["mean"], values.mean())
+        self.assertAlmostEqual(s["std"], values.std())
+        self.assertAlmostEqual(s["median"], np.median(values), delta=0.01)
+        self.assertAlmostEqual(s["p05"], np.percentile(values, 5), delta=0.01)
+        self.assertTrue(math.isnan(weighted_stats(np.array([1.0]), np.array([0.0]))["mean"]))
+
+    def test_held_at(self):
+        ts = np.array([0, 10, 30], dtype=np.int64) * MIN
+        values = np.array([1.0, np.nan, 3.0])
+        at = np.array([-1, 0, 5, 15, 29, 30, 100], dtype=np.int64) * MIN
+        np.testing.assert_array_equal(held_at(ts, values, at), [np.nan, 1, 1, 1, 1, 3, 3])
+        np.testing.assert_array_equal(
+            held_at(ts, values, at, max_hold=20 * MIN), [np.nan, 1, 1, 1, np.nan, 3, np.nan]
+        )
+        caps = np.array([12 * MIN, np.inf, np.inf])
+        np.testing.assert_array_equal(held_at(ts, values, at, max_hold=caps), [np.nan, 1, 1, np.nan, np.nan, 3, 3])
+
+    def test_step_bucket_mean(self):
+        ts = np.array([5, 10, 30], dtype=np.int64) * MIN
+        values = np.array([2.0, 4.0, 8.0])
+        edges = np.array([0, 10, 20, 30, 40, 50], dtype=np.int64) * MIN
+        means = step_bucket_mean(ts, values, edges)
+        # bucket 0: 2 holds 5 of the 5 covered minutes; 1: 4; 2: 4; 3: 8 (until the last edge); 4: 8
+        np.testing.assert_allclose(means, [2, 4, 4, 8, 8])
+        capped = step_bucket_mean(ts, values, edges, max_hold=10 * MIN)
+        np.testing.assert_allclose(capped, [2, 4, np.nan, 8, np.nan])  # 4 holds 10..20, 8 30..40
+        self.assertEqual(step_bucket_mean(ts, values, edges[:1]).size, 0)
+        self.assertTrue(np.isnan(step_bucket_mean(ts, np.full(3, np.nan), edges)).all())
+
+    def test_bucket_reduce(self):
+        index = np.array([0, 0, 2, 2, 2, 5])
+        values = np.array([1.0, 3.0, np.nan, 5.0, 4.0, 9.0])
+        nan = np.nan
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "mean"), [2, nan, 4.5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "min"), [1, nan, 4, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "max"), [3, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "first"), [1, nan, 5, nan])
+        np.testing.assert_array_equal(bucket_reduce(index, values, 4, "last"), [3, nan, 4, nan])
+        with self.assertRaises(ValueError):
+            bucket_reduce(index, values, 4, "median")
+
+    def test_step_bucket_reduce(self):
+        # a setpoint changed on the 5th, 12th and 20th of a 31-day month, monthly buckets
+        day = 24 * 60 * MIN
+        ts = np.array([5, 12, 20]) * day
+        values = np.array([20.0, 22.0, 21.0])
+        edges = np.array([0, 31 * day, 62 * day])
+        nan = np.nan
+        cap = day  # a value holds a day at most (an outage otherwise)
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last", cap), [21, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "min", cap), [20, nan])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max", cap), [22, nan])
+        np.testing.assert_allclose(step_bucket_reduce(ts, values, edges, "mean", cap), [21, nan])
+        # without a cap the value holds into the next month, which has no sample of its own
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "first"), [20, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "last"), [21, 21])
+        np.testing.assert_array_equal(step_bucket_reduce(ts, values, edges, "max"), [22, 21])
+        self.assertEqual(step_bucket_reduce(ts, values, edges[:1], "max").size, 0)
 
 
 class TestDetectGaps(unittest.TestCase):
