@@ -14,8 +14,7 @@ are returned in the same unit. ``NaN`` values are dropped.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Sequence
 
 import numpy as np
 
@@ -113,42 +112,51 @@ class SamplingProfile(NamedTuple):
 
     n: int  #: samples (without ``NaN``)
     span: float  #: last - first timestamp
-    interval_min: float | None  #: 1st percentile of the steps (minimum send interval)
-    interval_p10: float | None
-    interval_median: float | None
-    interval_p90: float | None
-    interval_max: float | None
+    interval_min: Optional[float]  #: 1st percentile of the steps (minimum send interval)
+    interval_p10: Optional[float]
+    interval_median: Optional[float]
+    interval_p90: Optional[float]
+    interval_max: Optional[float]
     change_of_value: bool  #: see :func:`is_change_of_value`
     repeat_share: float  #: share of steps that repeat the previous value
-    deadband: float | None  #: smallest typical value change (change of value only)
-    resolution: float | None  #: every value change is a multiple of this
-    heartbeat: float | None  #: regular interval of repeated, unchanged values
-    compression: float | None  #: N / m, m = non-zero second differences (Thornhill)
+    deadband: Optional[float]  #: smallest typical value change (change of value only)
+    resolution: Optional[float]  #: every value change is a multiple of this
+    heartbeat: Optional[float]  #: refresh interval of an unchanged value (COV)
+    compression: Optional[float]  #: N / m, m = non-zero second differences (Thornhill)
     longest_hold: float  #: longest time a value stood unchanged
     hold_share: float  #: share of the span in holds longer than ``long_hold``
 
 
-def _percentile(a: np.ndarray, q: float) -> float | None:
+#: the resolution fit is tested on at most this many changes (evenly spread)
+RESOLUTION_SAMPLE = 100_000
+#: candidate steps are taken from at most this many of the smallest changes
+RESOLUTION_SMALLEST = 4096
+
+
+def _percentile(a: np.ndarray, q: float) -> Optional[float]:
     return float(np.percentile(a, q)) if a.size else None
 
 
-def _resolution(changes: np.ndarray) -> float | None:
+def _resolution(changes: np.ndarray) -> Optional[float]:
     """The largest step of which (nearly) all value changes are whole multiples."""
     if changes.size < RESOLUTION_MIN_CHANGES:
         return None
-    found: float | None = None
+    found: Optional[float] = None
     largest = float(changes.max())
-    for step in np.unique(changes)[:RESOLUTION_CANDIDATES]:
+    k = min(changes.size, RESOLUTION_SMALLEST)
+    smallest = np.partition(changes, k - 1)[:k] if k < changes.size else changes
+    sample = changes[:: max(1, changes.size // RESOLUTION_SAMPLE)]
+    for step in np.unique(smallest)[:RESOLUTION_CANDIDATES]:
         if largest / step > RESOLUTION_MAX_RATIO:
             continue
-        r = changes / step
+        r = sample / step
         if np.mean(np.abs(r - np.round(r)) <= RESOLUTION_TOLERANCE) >= RESOLUTION_FIT:
             found = float(step)
     return found
 
 
 def sampling_profile(
-    ts: np.ndarray, values: np.ndarray, long_hold: float | None = None
+    ts: np.ndarray, values: np.ndarray, long_hold: Optional[float] = None
 ) -> SamplingProfile:
     """Estimate how a series was sampled and stored.
 
@@ -197,7 +205,7 @@ def sampling_profile(
     repeated = pos & (dv == 0)
     repeat_share = float(repeated.sum() / pos.sum()) if pos.any() else 0.0
     changes = np.abs(dv[dv != 0])
-    heartbeat: float | None = None
+    heartbeat: Optional[float] = None
     repeat_steps = dt[repeated]
     change_steps = dt[pos & (dv != 0)]
     if repeat_steps.size >= max(HEARTBEAT_MIN, HEARTBEAT_SHARE * steps.size):
@@ -225,13 +233,16 @@ def sampling_profile(
         if long_hold is not None and span > 0:
             hold_share = float(holds[holds > long_hold].sum() / span)
 
+    quantiles = (
+        [float(q) for q in np.percentile(steps, [1, 10, 50, 90])] if steps.size else [None] * 4
+    )
     return SamplingProfile(
         n=n,
         span=span,
-        interval_min=_percentile(steps, 1),
-        interval_p10=_percentile(steps, 10),
-        interval_median=_percentile(steps, 50),
-        interval_p90=_percentile(steps, 90),
+        interval_min=quantiles[0],
+        interval_p10=quantiles[1],
+        interval_median=quantiles[2],
+        interval_p90=quantiles[3],
         interval_max=float(steps.max()) if steps.size else None,
         change_of_value=cov,
         repeat_share=repeat_share,
