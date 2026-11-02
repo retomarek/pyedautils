@@ -124,6 +124,22 @@ class TestSamplingProfile(unittest.TestCase):
         self.assertGreaterEqual(p.deadband, 0.5)
         self.assertLessEqual(p.interval_max, 15 * MIN)
 
+    def test_irregular_repeats_are_no_heartbeat(self):
+        ts, v = _cov(*_room_temperature(), deadband=0.5)
+        rng = np.random.default_rng(5)
+        extra = np.sort(rng.integers(ts[0], ts[-1], 400))  # repeats at random times
+        held = v[np.searchsorted(ts, extra, side="right") - 1]
+        all_ts = np.concatenate([ts, extra])
+        order = np.argsort(all_ts, kind="stable")
+        p = sampling_profile(all_ts[order], np.concatenate([v, held])[order])
+        self.assertIsNone(p.heartbeat)
+
+    def test_no_long_hold_share_without_threshold(self):
+        ts = np.arange(0, 3 * DAY, HOUR, dtype=np.int64)
+        p = sampling_profile(ts, np.zeros(ts.size))
+        self.assertEqual(p.hold_share, 0.0)
+        self.assertEqual(p.longest_hold, ts[-1])
+
     def test_periodic_mostly_constant_has_no_heartbeat(self):
         ts = np.arange(0, 7 * DAY, 20 * MIN, dtype=np.int64)
         v = np.where((ts // (6 * HOUR)) % 2 == 0, 1.0, 2.0)

@@ -81,8 +81,19 @@ def is_change_of_value(
     d = d[d > 0]
     if d.size < min_samples:
         return False
-    long = d > ratio * float(np.median(d))
-    return int(long.sum()) >= min_long and float(d[long].sum()) > share * float(d.sum())
+    return _cov_from_steps(d, float(np.median(d)), ratio, share, min_long)
+
+
+def _cov_from_steps(
+    steps: np.ndarray,
+    median: float,
+    ratio: float = COV_RATIO,
+    share: float = COV_SHARE,
+    min_long: int = COV_MIN_LONG,
+) -> bool:
+    """:func:`is_change_of_value` on the positive steps and their median."""
+    long = steps > ratio * median
+    return int(long.sum()) >= min_long and float(steps[long].sum()) > share * float(steps.sum())
 
 
 def interval_histogram(ts: np.ndarray, edges: Sequence[float]) -> np.ndarray:
@@ -99,11 +110,11 @@ def interval_histogram(ts: np.ndarray, edges: Sequence[float]) -> np.ndarray:
     edges_arr = np.asarray(edges, dtype=np.float64)
     if edges_arr.size < 2:
         raise ValueError("edges needs at least two values")
-    d = np.diff(_as_ticks(ts)).astype(np.float64)
+    d = np.diff(_as_ticks(ts))
     d = d[d > 0]
-    clipped = np.clip(d, edges_arr[0], edges_arr[-1])
-    counts, _ = np.histogram(clipped, bins=edges_arr)
-    return counts.astype(np.int64)
+    # bin index by the inner edges: below the first and above the last edge clip
+    index = np.searchsorted(edges_arr[1:-1], d, side="right")
+    return np.bincount(index, minlength=edges_arr.size - 1).astype(np.int64)
 
 
 class SamplingProfile(NamedTuple):
@@ -155,6 +166,28 @@ def _resolution(changes: np.ndarray) -> Optional[float]:
     return found
 
 
+def _heartbeat(repeat_steps: np.ndarray, dt: np.ndarray, change_mask: np.ndarray) -> Optional[float]:
+    """The refresh interval of an unchanged value, if the repeats are regular and the
+    changes come much faster: periodic sampling repeats at the same interval as it
+    changes, a COV sender changes at any time and refreshes at a fixed interval."""
+    p10, beat, p90 = (float(q) for q in np.percentile(repeat_steps, [10, 50, 90]))
+    if p10 <= 0 or p90 / p10 > HEARTBEAT_SPREAD:
+        return None
+    change_steps = dt[change_mask]
+    if change_steps.size and float(np.median(change_steps)) < HEARTBEAT_CHANGE_RATIO * beat:
+        return beat
+    return None
+
+
+def _holds(ticks: np.ndarray, changed: np.ndarray) -> np.ndarray:
+    """How long each value stood: until the next different value (the last one until
+    the end)."""
+    run_starts = np.flatnonzero(changed) + 1
+    starts = np.empty(run_starts.size + 2, dtype=ticks.dtype)
+    starts[0], starts[1:-1], starts[-1] = ticks[0], ticks[run_starts], ticks[-1]
+    return np.diff(starts).astype(np.float64)
+
+
 def sampling_profile(
     ts: np.ndarray, values: np.ndarray, long_hold: Optional[float] = None
 ) -> SamplingProfile:
@@ -191,8 +224,9 @@ def sampling_profile(
     vals = np.asarray(values, dtype=np.float64)
     if ticks.shape != vals.shape:
         raise ValueError("ts and values must have the same shape")
-    present = ~np.isnan(vals)
-    ticks, vals = ticks[present], vals[present]
+    missing = np.isnan(vals)
+    if missing.any():
+        ticks, vals = ticks[~missing], vals[~missing]
     n = int(ticks.size)
     span = float(ticks[-1] - ticks[0]) if n else 0.0
     dt = np.diff(ticks).astype(np.float64)
@@ -200,42 +234,37 @@ def sampling_profile(
     if (dt < 0).any():
         raise ValueError("ts must be sorted")
     pos = dt > 0
-    steps = dt[pos]
+    all_pos = bool(pos.all())
+    steps = dt if all_pos else dt[pos]
+    quantiles = (
+        [float(q) for q in np.percentile(steps, [1, 10, 50, 90])] if steps.size else [None] * 4
+    )
 
-    repeated = pos & (dv == 0)
-    repeat_share = float(repeated.sum() / pos.sum()) if pos.any() else 0.0
-    changes = np.abs(dv[dv != 0])
-    heartbeat: Optional[float] = None
-    repeat_steps = dt[repeated]
-    change_steps = dt[pos & (dv != 0)]
-    if repeat_steps.size >= max(HEARTBEAT_MIN, HEARTBEAT_SHARE * steps.size):
-        p10, p90 = np.percentile(repeat_steps, [10, 90])
-        beat = float(np.median(repeat_steps))
-        # periodic sampling repeats at the same interval as it changes; a COV sender
-        # changes at any time and refreshes an unchanged value at a fixed interval
-        changes_faster = (
-            change_steps.size > 0 and float(np.median(change_steps)) < HEARTBEAT_CHANGE_RATIO * beat
-        )
-        if p10 > 0 and p90 / p10 <= HEARTBEAT_SPREAD and changes_faster:
-            heartbeat = beat
+    changed = dv != 0
+    all_changed = bool(changed.all())
+    repeated = pos & ~changed
+    n_repeated = int(repeated.sum())
+    repeat_share = n_repeated / steps.size if steps.size else 0.0
+    changes = np.abs(dv if all_changed else dv[changed])
+    heartbeat = None
+    if n_repeated >= max(HEARTBEAT_MIN, HEARTBEAT_SHARE * steps.size):
+        heartbeat = _heartbeat(dt[repeated], dt, pos & changed)
     # a heartbeat caps the steps, so the long-step test alone misses such COV data
-    cov = heartbeat is not None or is_change_of_value(ticks)
+    cov = heartbeat is not None or (
+        n >= COV_MIN_SAMPLES
+        and steps.size >= COV_MIN_SAMPLES
+        and _cov_from_steps(steps, float(quantiles[2]))
+    )
 
-    m = int(np.count_nonzero(np.diff(vals, 2))) if n >= 3 else 0
+    m = int(np.count_nonzero(np.diff(dv))) if n >= 3 else 0
     compression = n / m if m else None
 
     longest_hold, hold_share = 0.0, 0.0
     if n >= 2:
-        run_starts = np.concatenate(([0], np.flatnonzero(dv != 0) + 1))
-        # a value holds until the next different value (the last one until the end)
-        holds = np.diff(np.append(ticks[run_starts], ticks[-1])).astype(np.float64)
+        holds = dt if all_changed else _holds(ticks, changed)
         longest_hold = float(holds.max())
         if long_hold is not None and span > 0:
             hold_share = float(holds[holds > long_hold].sum() / span)
-
-    quantiles = (
-        [float(q) for q in np.percentile(steps, [1, 10, 50, 90])] if steps.size else [None] * 4
-    )
     return SamplingProfile(
         n=n,
         span=span,
