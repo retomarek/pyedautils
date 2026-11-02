@@ -1,0 +1,244 @@
+"""How a time series was sampled and stored, estimated from the data alone.
+
+Building automation archives store values either at a fixed interval or only on a
+change of value (COV: a new sample when the value moved by more than a dead band,
+sometimes with a periodic "heartbeat" of an unchanged value). Which of the two, and
+with which settings, decides which analyses are meaningful (e.g. oscillation
+indices need samples well below the oscillation period; a compressed archive biases
+spread and spectra, see Thornhill et al. 2004, doi:10.1016/j.jprocont.2003.06.003).
+
+:func:`sampling_profile` estimates these settings from the timestamps and values.
+Timestamps are numeric (e.g. int64 epoch milliseconds) or ``datetime64``; durations
+are returned in the same unit. ``NaN`` values are dropped.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import NamedTuple
+
+import numpy as np
+
+from pyedautils.arraystats import _as_ticks
+
+__all__ = [
+    "SamplingProfile",
+    "interval_histogram",
+    "is_change_of_value",
+    "sampling_profile",
+]
+
+#: a step this many times the median step is "long"
+COV_RATIO = 10.0
+#: long steps covering more than this share of the time: change-of-value sampling
+COV_SHARE = 0.5
+COV_MIN_SAMPLES = 64
+#: fewer long steps are outages, not a sampling style
+COV_MIN_LONG = 8
+
+#: a heartbeat needs this share of repeated values (and at least HEARTBEAT_MIN of them)
+HEARTBEAT_SHARE = 0.01
+HEARTBEAT_MIN = 16
+#: repeat intervals of a heartbeat are regular: P90 / P10 at most this
+HEARTBEAT_SPREAD = 2.0
+#: value changes come at most this x the heartbeat apart (median), else periodic sampling
+HEARTBEAT_CHANGE_RATIO = 0.5
+
+#: the dead band is this percentile of the non-zero value changes
+DEADBAND_PERCENTILE = 5.0
+#: resolution: share of value changes that must be whole multiples of the step
+RESOLUTION_FIT = 0.95
+RESOLUTION_TOLERANCE = 1e-3  # |r - round(r)| for a multiple r of the step (float32 noise)
+#: candidate steps far below the largest change are numerical noise (denormals)
+RESOLUTION_MAX_RATIO = 1e6
+RESOLUTION_CANDIDATES = 8
+RESOLUTION_MIN_CHANGES = 16
+
+
+def is_change_of_value(
+    ts: np.ndarray,
+    ratio: float = COV_RATIO,
+    share: float = COV_SHARE,
+    min_samples: int = COV_MIN_SAMPLES,
+    min_long: int = COV_MIN_LONG,
+) -> bool:
+    """Change-of-value sampling: most of the time passes in steps far longer than the
+    typical one (a regular series with a few outages does not qualify).
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        ratio: A step longer than ``ratio`` x the median step is "long".
+        share: Long steps must cover more than this share of the time.
+        min_samples: Fewer (positive) steps are never change of value.
+        min_long: At least this many long steps.
+
+    Returns:
+        ``True`` for change-of-value sampling.
+    """
+    ticks = _as_ticks(ts)
+    if ticks.size < min_samples:
+        return False
+    d = np.diff(ticks).astype(np.float64)
+    d = d[d > 0]
+    if d.size < min_samples:
+        return False
+    long = d > ratio * float(np.median(d))
+    return int(long.sum()) >= min_long and float(d[long].sum()) > share * float(d.sum())
+
+
+def interval_histogram(ts: np.ndarray, edges: Sequence[float]) -> np.ndarray:
+    """Number of sampling intervals (positive time steps) per bin.
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        edges: Increasing bin edges in timestamp units; steps below the first edge
+            count in the first bin, steps above the last edge in the last bin.
+
+    Returns:
+        ``len(edges) - 1`` counts.
+    """
+    edges_arr = np.asarray(edges, dtype=np.float64)
+    if edges_arr.size < 2:
+        raise ValueError("edges needs at least two values")
+    d = np.diff(_as_ticks(ts)).astype(np.float64)
+    d = d[d > 0]
+    clipped = np.clip(d, edges_arr[0], edges_arr[-1])
+    counts, _ = np.histogram(clipped, bins=edges_arr)
+    return counts.astype(np.int64)
+
+
+class SamplingProfile(NamedTuple):
+    """Result of :func:`sampling_profile`. Durations are in timestamp units; an
+    estimate that the data does not support is ``None``."""
+
+    n: int  #: samples (without ``NaN``)
+    span: float  #: last - first timestamp
+    interval_min: float | None  #: 1st percentile of the steps (minimum send interval)
+    interval_p10: float | None
+    interval_median: float | None
+    interval_p90: float | None
+    interval_max: float | None
+    change_of_value: bool  #: see :func:`is_change_of_value`
+    repeat_share: float  #: share of steps that repeat the previous value
+    deadband: float | None  #: smallest typical value change (change of value only)
+    resolution: float | None  #: every value change is a multiple of this
+    heartbeat: float | None  #: regular interval of repeated, unchanged values
+    compression: float | None  #: N / m, m = non-zero second differences (Thornhill)
+    longest_hold: float  #: longest time a value stood unchanged
+    hold_share: float  #: share of the span in holds longer than ``long_hold``
+
+
+def _percentile(a: np.ndarray, q: float) -> float | None:
+    return float(np.percentile(a, q)) if a.size else None
+
+
+def _resolution(changes: np.ndarray) -> float | None:
+    """The largest step of which (nearly) all value changes are whole multiples."""
+    if changes.size < RESOLUTION_MIN_CHANGES:
+        return None
+    found: float | None = None
+    largest = float(changes.max())
+    for step in np.unique(changes)[:RESOLUTION_CANDIDATES]:
+        if largest / step > RESOLUTION_MAX_RATIO:
+            continue
+        r = changes / step
+        if np.mean(np.abs(r - np.round(r)) <= RESOLUTION_TOLERANCE) >= RESOLUTION_FIT:
+            found = float(step)
+    return found
+
+
+def sampling_profile(
+    ts: np.ndarray, values: np.ndarray, long_hold: float | None = None
+) -> SamplingProfile:
+    """Estimate how a series was sampled and stored.
+
+    - Intervals: percentiles of the positive time steps; ``interval_min`` (1st
+      percentile) is the shortest interval the sender typically uses.
+    - ``heartbeat``: the median interval between two samples with the same value,
+      when such repeats are common and regular while changes come much faster (a
+      change-of-value sender refreshing an unchanged value; periodic sampling of a
+      mostly constant value repeats at its sampling interval and has no heartbeat).
+    - Change of value: :func:`is_change_of_value` or a heartbeat. Then
+      ``deadband`` is the 5th percentile of the non-zero value changes, i.e. what a
+      value must move before a new sample is stored.
+    - ``resolution``: a quantisation step, if (nearly) all value changes are whole
+      multiples of it (e.g. 0.1 for values stored with one decimal).
+    - ``compression``: N / m with m the number of non-zero second differences of
+      the values (Thornhill et al. 2004): about 1 for uncompressed data, larger
+      when an archive stores straight segments or holds. Change-of-value data is
+      about 1 by construction; there, the dead band describes the compression.
+    - ``longest_hold``, ``hold_share``: how long values stood unchanged (from a
+      sample to the next sample with a different value); the share counts holds
+      longer than ``long_hold`` (``None``: no share, 0).
+
+    Args:
+        ts: Sorted timestamps (numeric or ``datetime64``).
+        values: Sample values, same length.
+        long_hold: Hold duration from which ``hold_share`` counts.
+
+    Returns:
+        :class:`SamplingProfile`.
+    """
+    ticks = _as_ticks(np.asarray(ts))
+    vals = np.asarray(values, dtype=np.float64)
+    if ticks.shape != vals.shape:
+        raise ValueError("ts and values must have the same shape")
+    present = ~np.isnan(vals)
+    ticks, vals = ticks[present], vals[present]
+    n = int(ticks.size)
+    span = float(ticks[-1] - ticks[0]) if n else 0.0
+    dt = np.diff(ticks).astype(np.float64)
+    dv = np.diff(vals)
+    if (dt < 0).any():
+        raise ValueError("ts must be sorted")
+    pos = dt > 0
+    steps = dt[pos]
+
+    repeated = pos & (dv == 0)
+    repeat_share = float(repeated.sum() / pos.sum()) if pos.any() else 0.0
+    changes = np.abs(dv[dv != 0])
+    heartbeat: float | None = None
+    repeat_steps = dt[repeated]
+    change_steps = dt[pos & (dv != 0)]
+    if repeat_steps.size >= max(HEARTBEAT_MIN, HEARTBEAT_SHARE * steps.size):
+        p10, p90 = np.percentile(repeat_steps, [10, 90])
+        beat = float(np.median(repeat_steps))
+        # periodic sampling repeats at the same interval as it changes; a COV sender
+        # changes at any time and refreshes an unchanged value at a fixed interval
+        changes_faster = (
+            change_steps.size > 0 and float(np.median(change_steps)) < HEARTBEAT_CHANGE_RATIO * beat
+        )
+        if p10 > 0 and p90 / p10 <= HEARTBEAT_SPREAD and changes_faster:
+            heartbeat = beat
+    # a heartbeat caps the steps, so the long-step test alone misses such COV data
+    cov = heartbeat is not None or is_change_of_value(ticks)
+
+    m = int(np.count_nonzero(np.diff(vals, 2))) if n >= 3 else 0
+    compression = n / m if m else None
+
+    longest_hold, hold_share = 0.0, 0.0
+    if n >= 2:
+        run_starts = np.concatenate(([0], np.flatnonzero(dv != 0) + 1))
+        # a value holds until the next different value (the last one until the end)
+        holds = np.diff(np.append(ticks[run_starts], ticks[-1])).astype(np.float64)
+        longest_hold = float(holds.max())
+        if long_hold is not None and span > 0:
+            hold_share = float(holds[holds > long_hold].sum() / span)
+
+    return SamplingProfile(
+        n=n,
+        span=span,
+        interval_min=_percentile(steps, 1),
+        interval_p10=_percentile(steps, 10),
+        interval_median=_percentile(steps, 50),
+        interval_p90=_percentile(steps, 90),
+        interval_max=float(steps.max()) if steps.size else None,
+        change_of_value=cov,
+        repeat_share=repeat_share,
+        deadband=_percentile(changes, DEADBAND_PERCENTILE) if cov else None,
+        resolution=_resolution(changes),
+        heartbeat=heartbeat,
+        compression=compression,
+        longest_hold=longest_hold,
+        hold_share=hold_share,
+    )
