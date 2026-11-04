@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 from pyedautils.arraystats import infer_interval
 from pyedautils.sampling import (
+    _off_grid,
     interval_histogram,
     is_change_of_value,
     on_grid_share,
@@ -99,6 +100,15 @@ class TestIsChangeOfValue(unittest.TestCase):
     def test_datetime64(self):
         ts = np.arange("2024-01-01", "2024-01-08", dtype="datetime64[m]")
         self.assertFalse(is_change_of_value(ts))
+
+    def test_scattered_steps_with_narrow_spread_stay_regular(self):
+        # steps spread evenly over 1-3 min: few at the median, but p90/p10 < 4
+        rng = np.random.default_rng(6)
+        steps = rng.integers(MIN, 3 * MIN, 2000)
+        self.assertFalse(is_change_of_value(np.cumsum(steps)))
+
+    def test_off_grid_needs_positive_median(self):
+        self.assertFalse(_off_grid(np.array([0.0, 1.0, 2.0]), 0.0))
 
 
 class TestIntervalHistogram(unittest.TestCase):
