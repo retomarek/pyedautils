@@ -24,6 +24,7 @@ __all__ = [
     "SamplingProfile",
     "interval_histogram",
     "is_change_of_value",
+    "on_grid_share",
     "sampling_profile",
 ]
 
@@ -34,6 +35,16 @@ COV_SHARE = 0.5
 COV_MIN_SAMPLES = 64
 #: fewer long steps are outages, not a sampling style
 COV_MIN_LONG = 8
+#: an interval puts most steps near a few lengths (one rate or a few rates); a step
+#: within GRID_TOLERANCE of the median counts as on the grid at once
+GRID_TOLERANCE = 0.05
+#: width of the log-step bins that find the common step lengths, and how many of them
+GRID_BIN = 0.1
+GRID_MODES = 3
+#: fewer steps on the grid than this share and a wide spread of the steps (p90 / p10
+#: above OFF_GRID_SPREAD): no interval, the sender stores on change
+GRID_SHARE = 0.5
+OFF_GRID_SPREAD = 4.0
 
 #: a heartbeat needs this share of repeated values (and at least HEARTBEAT_MIN of them)
 HEARTBEAT_SHARE = 0.01
@@ -62,7 +73,9 @@ def is_change_of_value(
     min_long: int = COV_MIN_LONG,
 ) -> bool:
     """Change-of-value sampling: most of the time passes in steps far longer than the
-    typical one (a regular series with a few outages does not qualify).
+    typical one (a regular series with a few outages does not qualify), or the steps
+    follow no interval at all - few lie near a common length and they spread widely
+    (a slow signal with a large dead band: long steps, but none of them regular).
 
     Args:
         ts: Sorted timestamps (numeric or ``datetime64``).
@@ -93,7 +106,33 @@ def _cov_from_steps(
 ) -> bool:
     """:func:`is_change_of_value` on the positive steps and their median."""
     long = steps > ratio * median
-    return int(long.sum()) >= min_long and float(steps[long].sum()) > share * float(steps.sum())
+    if int(long.sum()) >= min_long and float(steps[long].sum()) > share * float(steps.sum()):
+        return True
+    return _off_grid(steps, median)
+
+
+def on_grid_share(steps: np.ndarray, modes: int = GRID_MODES) -> float:
+    """Share of the (positive) steps near one of the ``modes`` most common step lengths
+    (``GRID_BIN`` wide on a log scale): about 1 for sampling at one or a few intervals,
+    small for change-of-value data."""
+    if steps.size == 0:
+        return 1.0
+    b = np.floor(np.log(steps) / np.log1p(GRID_BIN)).astype(np.int64)
+    counts = np.bincount(b - b.min())
+    pairs = counts[:-1] + counts[1:] if counts.size > 1 else counts  # a jittered interval
+    return min(1.0, float(np.sort(pairs)[-modes:].sum()) / steps.size)
+
+
+def _off_grid(steps: np.ndarray, median: float) -> bool:
+    """No interval: few steps near the common lengths and a wide spread."""
+    if median <= 0:
+        return False
+    if float(np.mean(np.abs(steps - median) <= GRID_TOLERANCE * median)) >= GRID_SHARE:
+        return False  # most steps at the median: an interval (the cheap test first)
+    p10, p90 = (float(q) for q in np.percentile(steps, [10, 90]))
+    if p10 <= 0 or p90 / p10 <= OFF_GRID_SPREAD:
+        return False
+    return on_grid_share(steps) < GRID_SHARE
 
 
 def interval_histogram(ts: np.ndarray, edges: Sequence[float]) -> np.ndarray:

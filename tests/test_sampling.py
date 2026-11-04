@@ -3,7 +3,12 @@ import unittest
 
 import numpy as np
 from pyedautils.arraystats import infer_interval
-from pyedautils.sampling import interval_histogram, is_change_of_value, sampling_profile
+from pyedautils.sampling import (
+    interval_histogram,
+    is_change_of_value,
+    on_grid_share,
+    sampling_profile,
+)
 
 SEC = 1_000
 MIN = 60_000
@@ -66,6 +71,25 @@ class TestIsChangeOfValue(unittest.TestCase):
     def test_cov_archive(self):
         ts, _ = _cov(*_room_temperature(), deadband=0.5)
         self.assertTrue(is_change_of_value(ts))
+
+    def test_slow_signal_with_large_dead_band(self):
+        # steps of 30 min to a day, none regular: the long-step test alone misses it
+        rng = np.random.default_rng(4)
+        steps = np.exp(rng.uniform(np.log(30 * MIN), np.log(DAY), 2000)).astype(np.int64)
+        self.assertTrue(is_change_of_value(np.cumsum(steps)))
+
+    def test_interval_with_rate_changes_stays_regular(self):
+        rng = np.random.default_rng(5)
+        fast = np.full(3000, 10 * MIN) + rng.integers(-5_000, 5_000, 3000)  # jitter
+        slow = np.full(500, HOUR) + rng.integers(-5_000, 5_000, 500)
+        ts = np.cumsum(np.concatenate([fast, slow, fast]))
+        self.assertFalse(is_change_of_value(ts))
+        self.assertGreater(on_grid_share(np.diff(ts).astype(float)), 0.9)
+        self.assertEqual(on_grid_share(np.empty(0)), 1.0)
+
+    def test_two_even_rates_stay_regular(self):
+        ts = np.cumsum(np.tile([MIN, 15 * MIN], 2000)).astype(np.int64)
+        self.assertFalse(is_change_of_value(ts))
 
     def test_few_samples(self):
         self.assertFalse(is_change_of_value(np.arange(10, dtype=np.int64) * HOUR))
