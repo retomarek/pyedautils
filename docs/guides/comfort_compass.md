@@ -14,9 +14,9 @@ from importlib import resources
 
 import pandas as pd
 
-from pyedautils._mollier import pressure_from_altitude
 from pyedautils.comfort import comfort_compass_distribution
 from pyedautils.plots import plot_comfort_compass
+from pyedautils.psychrometrics import pressure_from_altitude
 
 df = pd.read_csv(resources.files("pyedautils") / "data" / "flat_temp_hum.csv",
                  sep=";", parse_dates=["timestamp"], index_col="timestamp")

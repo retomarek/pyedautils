@@ -562,7 +562,7 @@ def ventilation_effect(
 
     Args:
         room: Room air as ``(temperature [°C], relative humidity [%])`` or a
-            ``MoistAirState`` from :func:`pyedautils._mollier.state`.
+            ``MoistAirState`` from :func:`pyedautils.psychrometrics.state`.
         outdoor: Outside air, same forms as ``room``.
         pressure: Air pressure [Pa] used to convert ``(t, rh)`` pairs to
             absolute humidity. Default 101325 (sea level).

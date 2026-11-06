@@ -6,7 +6,7 @@ physics is usually drawn as the psychrometric chart, rotated and mirrored.
 pyedautils draws it with {func}`~pyedautils.plots.comfort.plot_mollier_hx` (and the
 lighter {func}`~pyedautils.plots.comfort.plot_mollier_hx_fast`); the numbers behind it
 come from the {doc}`psychrometric functions <../api/psychrometrics>` in
-`pyedautils._mollier`.
+`pyedautils.psychrometrics`.
 
 ```{admonition} How the numbers on this page were computed
 :class: note
@@ -54,28 +54,28 @@ Every state of the air is one point:
   water condenses on windows and cold walls, or forms fog. That temperature is
   the **dew point** (see below).
 - The air pressure, which depends on the altitude, shifts the curves a little.
-  Pass `pressure=` (in Pa) or `altitude=` to `plot_mollier_hx`, and `p=` or
-  `altitude=` to `state()`.
+  Pass `altitude=` (or an explicit `pressure=` in Pa, which then wins) to
+  `plot_mollier_hx`, and `p=` or `altitude=` to `state()`.
 
 ### How processes move the point
 
-Each process has a function in `pyedautils._mollier`:
+Each process has a function in `pyedautils.psychrometrics`:
 
 - **Heating or cooling** without adding or removing water moves the point
-  straight **up or down** ({func}`~pyedautils._mollier.heat`,
-  {func}`~pyedautils._mollier.cool` above the dew point): *x* stays the same
+  straight **up or down** ({func}`~pyedautils.psychrometrics.heat`,
+  {func}`~pyedautils.psychrometrics.cool` above the dew point): *x* stays the same
   and only the relative humidity changes. Heating makes air relatively drier,
   cooling makes it relatively more humid.
 - **Adding moisture** (people, showering, cooking, plants, a humidifier) moves
-  the point to the **right** ({func}`~pyedautils._mollier.humidify_isothermal`,
-  {func}`~pyedautils._mollier.humidify_adiabatic`). **Removing moisture**
+  the point to the **right** ({func}`~pyedautils.psychrometrics.humidify_isothermal`,
+  {func}`~pyedautils.psychrometrics.humidify_adiabatic`). **Removing moisture**
   (ventilating with dry air, a dehumidifier) moves it to the **left**.
 - **Mixing** two air streams, for example room air and outside air when you
   ventilate, puts the result on the straight line between the two points
-  ({func}`~pyedautils._mollier.mix`).
+  ({func}`~pyedautils.psychrometrics.mix`).
 
 ```python
-from pyedautils._mollier import state
+from pyedautils.psychrometrics import state
 
 s = state(t=21, phi=0.60, altitude=450)
 print(f"x = {s.x * 1000:.1f} g/kg, dew point = {s.t_dp:.1f} °C")
@@ -131,7 +131,7 @@ That happens a few degrees **above** the dew point:
 The last column is the surface temperature at which the same air reaches 80 %:
 
 ```python
-from pyedautils._mollier import state, temperature_p_sat
+from pyedautils.psychrometrics import state, temperature_p_sat
 
 s = state(t=21, phi=0.50, altitude=450)
 t_mould = temperature_p_sat(s.p_v / 0.80)   # surface temperature at phi = 80 %
@@ -216,7 +216,7 @@ much humidity. Short, wide-open airing (a few minutes, with cross-draught)
 exchanges the humid air without cooling down the walls.
 
 ```python
-from pyedautils._mollier import state, heat
+from pyedautils.psychrometrics import state, heat
 from pyedautils.plots import plot_mollier_hx
 
 outside = state(t=0, phi=0.80, altitude=450)
@@ -224,7 +224,7 @@ heated, _ = heat(outside, t_out=21)
 print(f"{outside.x * 1000:.1f} g/kg -> {heated.phi:.0%} at 21 °C")
 # 3.2 g/kg -> 20% at 21 °C
 
-html = plot_mollier_hx(altitude=450, pressure=outside.p,
+html = plot_mollier_hx(altitude=450,   # pressure follows from the altitude
                        states=[outside, heated], labels=["outside", "heated"])
 ```
 
@@ -263,7 +263,7 @@ the room is simply overheated, because heating less raises the relative
 humidity for free.
 
 ```python
-from pyedautils._mollier import state, humidify_isothermal
+from pyedautils.psychrometrics import state, humidify_isothermal
 
 room = state(t=21, phi=0.30, altitude=450, m_dot_dry=1.0)
 humid, balance = humidify_isothermal(room, phi_out=0.50)
@@ -284,7 +284,7 @@ it at a glance: is the outside point to the **left** of the room point? Then
 airing dries the room, even when the outside air reads 90 % relative humidity.
 
 ```python
-from pyedautils._mollier import state
+from pyedautils.psychrometrics import state
 
 outside = state(t=25, phi=0.70, altitude=450)
 cellar = state(t=18, phi=0.65, altitude=450)
@@ -306,7 +306,7 @@ night air would read only 46 %. Close the windows and shade them in the
 morning, before the outside air gets warmer than the room.
 
 ```python
-from pyedautils._mollier import state
+from pyedautils.psychrometrics import state
 
 room = state(t=26, phi=0.50, altitude=450)
 night = state(t=16, phi=0.85, altitude=450)

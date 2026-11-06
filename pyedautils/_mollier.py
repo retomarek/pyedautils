@@ -151,6 +151,17 @@ def pressure_from_altitude(altitude_m) -> float:
     International Standard Atmosphere (ISA) barometric formula, valid in the
     troposphere (0–11 km). Reference state: p₀ = 101325 Pa, T₀ = 288.15 K,
     L = 0.0065 K/m.
+
+    Public import: ``from pyedautils.psychrometrics import
+    pressure_from_altitude``. The Mollier plots
+    (:func:`pyedautils.plots.plot_mollier_hx`, ``plot_mollier_hx_fast``) and
+    :func:`state` apply it when only ``altitude`` is given.
+
+    Args:
+        altitude_m: Altitude in metres above sea level (scalar or array).
+
+    Returns:
+        float: Pressure in Pa, e.g. 101325 at 0 m and about 96 035 at 450 m.
     """
     return P_STD * (1 - 2.25577e-5 * altitude_m) ** 5.25588
 
