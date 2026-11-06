@@ -4,6 +4,10 @@ Visualizations for energy time-series data and psychrometric charts.
 
 See the {doc}`../examples/index` section for interactive usage examples.
 
+```{tip}
+Reading the comfort plots: {doc}`../guides/mollier_hx` ({ref}`reading the diagram <hx-reading-the-diagram>`, {ref}`comfort <hx-comfort>`, {ref}`saving energy <hx-saving-energy>`) for `plot_mollier_hx` / `plot_mollier_hx_fast`, and {doc}`../guides/comfort_compass` ({ref}`reading the compass <compass-reading-the-diagram>`, {ref}`comfort <compass-comfort>`, {ref}`saving energy <compass-saving-energy>`) for `plot_comfort_compass`. The comfort-zone and warning-band ideas apply to the other comfort plots too.
+```
+
 ## Daily Profiles
 
 ```{eval-rst}
