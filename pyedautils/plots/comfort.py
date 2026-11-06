@@ -39,6 +39,11 @@ def plot_comfort_sia180(
 
     Returns:
         go.Figure
+
+    See Also:
+        Why temperature and humidity belong together, and how to save
+        energy without losing comfort:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-comfort
     """
     from pyedautils.data_prep.season import get_season
 
@@ -162,6 +167,11 @@ def plot_comfort_temp_humidity(
 
     Returns:
         go.Figure
+
+    See Also:
+        The same data as an h,x diagram (:func:`plot_mollier_hx`), and how
+        to read comfort zone, mould risk and energy saving from it:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-reading-the-diagram
     """
     from pyedautils.data_prep.season import get_season
 
@@ -240,13 +250,18 @@ def plot_comfort_temp_humidity(
     return fig
 
 
+#: D3 build loaded by the generated pages (the bundled d3-mollierhx sources
+#: target D3 v7).
+_D3_URL = "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"
+
+
 def _load_d3_js():
-    """Load bundled D3.js source files for the Mollier diagram."""
+    """Load the bundled d3-mollierhx sources used by :func:`plot_mollier_hx`."""
     from importlib import resources as _res
-    d3_dir = _res.files("pyedautils") / "data" / "d3_mollier"
+    d3_dir = _res.files("pyedautils") / "data" / "d3_mollierhx"
     return {
-        "mollier_functions": (d3_dir / "mollier_functions.js").read_text(encoding="utf-8"),
-        "coordinate_generator": (d3_dir / "CoordinateGenerator.js").read_text(encoding="utf-8"),
+        "mollier_functions": (d3_dir / "mollierFunctions.js").read_text(encoding="utf-8"),
+        "coordinate_generator": (d3_dir / "coordinateGenerator.js").read_text(encoding="utf-8"),
         "draw_comfort": (d3_dir / "drawComfort.js").read_text(encoding="utf-8"),
     }
 
@@ -263,17 +278,134 @@ def _get_season_fast(dt):
     return "Fall"
 
 
-def _altitude_pressure_labels(pressure, altitude):
-    """Top-right annotation strings ``(altitude_json, pressure_json)``.
+#: Captions of the h,x-diagram grid (English defaults) for the ``captions``
+#: argument of :func:`plot_mollier_hx` / :func:`plot_mollier_hx_fast`. Copy
+#: and translate as needed; ``""`` hides a caption. ``x_axis_title`` defaults
+#: to the ``x_axis_title`` argument.
+MOLLIER_DEFAULT_CAPTIONS: Dict[str, str] = {
+    "temperature": "Temperature ϑ [°C]",     # left axis, rotated
+    "rel_humidity": "rel. humidity φ [%]",   # right edge, top
+    "density": "Density ρ [kg/m³]",          # right edge, middle
+    "enthalpy": "Enthalpy [kJ/kg]",          # right edge, bottom
+    "x_axis": "x [g/kg]",                    # right margin, end of the x axis
+    "x_axis_title": "absolute water content x [g/kg]",  # below the x axis
+}
+
+#: All other visible texts of :func:`plot_mollier_hx` /
+#: :func:`plot_mollier_hx_fast` (English defaults) for their ``texts``
+#: argument. Placeholders in braces are filled in: ``{t}`` °C, ``{rh}`` %,
+#: ``{x}`` g/kg, ``{n}`` count, ``{alt}`` m, ``{hpa}`` hPa. ``""`` hides the
+#: altitude / pressure line and the ventilation note.
+MOLLIER_DEFAULT_TEXTS: Dict[str, str] = {
+    # outside air and ventilation (d3-mollierhx HX_DEFAULT_TEXTS)
+    "outdoor": "Outside air",
+    "room": "Room",
+    "ventilation_dries": "ventilating dries",
+    "ventilation_humidifies": "ventilating adds moisture",
+    "ventilation_neutral": "ventilating: no change",
+    "state_value": "{t} °C · {rh} %",        # label of an edge arrow
+    # tooltips and info (d3-mollierhx MOLLIER_CHART_DEFAULT_TEXTS)
+    "now": "Now",                            # tooltip title of the room point
+    "tip_x": "x", "tip_t": "T", "tip_phi": "φ", "tip_h": "h", "tip_td": "Td",
+    "freq_hours": "{n} h/year outside",
+    "freq_days": "{n} days/year outside",
+    "altitude": "{alt} m a.s.l.",
+    "pressure": "{hpa} hPa",
+    # legend and latest-row tooltip (plot_mollier_hx)
+    "latest": "Latest",
+    "comfort_zone": "Comfort zone",          # also: comfort_label
+    "season_winter": "Winter",               # also: season_labels
+    "season_spring": "Spring",
+    "season_summer": "Summer",
+    "season_fall": "Fall",
+}
+
+_SEASON_KEYS = ("Winter", "Spring", "Summer", "Fall")
+
+
+def _fill(template, **values):
+    """``"{t} °C"`` + ``t=5`` → ``"5 °C"``; unknown placeholders are kept
+    (same rule as ``hxFormat`` in d3-mollierhx)."""
+    import re
+    return re.sub(r"\{(\w+)\}",
+                  lambda m: str(values[m.group(1)]) if m.group(1) in values
+                  else m.group(0), str(template))
+
+
+def _merge_texts(defaults, user, name):
+    """``defaults`` updated with the non-``None`` values of ``user``; unknown
+    keys raise ``ValueError`` (catches typos in translations)."""
+    out = dict(defaults)
+    if not user:
+        return out
+    unknown = sorted(set(user) - set(defaults))
+    if unknown:
+        raise ValueError(
+            f"unknown {name} key(s) {unknown}; valid keys: {sorted(defaults)}")
+    out.update({k: str(v) for k, v in user.items() if v is not None})
+    return out
+
+
+def _mollier_texts(captions, texts, x_axis_title, comfort_label,
+                   season_labels):
+    """Resolve the ``captions`` / ``texts`` arguments of the h,x plots.
+
+    The older arguments map onto the same keys (``x_axis_title`` →
+    ``captions["x_axis_title"]``, ``comfort_label`` → ``texts["comfort_zone"]``,
+    ``season_labels`` → ``texts["season_*"]``); a key given in ``captions`` /
+    ``texts`` takes precedence. Returns ``(captions, texts)``, both complete.
+    """
+    caps = dict(MOLLIER_DEFAULT_CAPTIONS)
+    if x_axis_title is not None:
+        caps["x_axis_title"] = str(x_axis_title)
+    caps = _merge_texts(caps, captions, "captions")
+    base = dict(MOLLIER_DEFAULT_TEXTS)
+    if comfort_label is not None:
+        base["comfort_zone"] = str(comfort_label)
+    for k in _SEASON_KEYS:
+        if season_labels and season_labels.get(k) is not None:
+            base["season_" + k.lower()] = str(season_labels[k])
+    return caps, _merge_texts(base, texts, "texts")
+
+
+def _altitude_pressure_labels(pressure, altitude, texts=None):
+    """Top-right annotation strings ``(altitude, pressure)`` from the
+    ``altitude`` / ``pressure`` templates of ``texts``.
 
     Pressure is shown in hPa. Altitude defaults to the value derived from the
     pressure via the inverse ISA barometric formula when not supplied.
     """
-    import json
+    texts = texts or MOLLIER_DEFAULT_TEXTS
     if altitude is None:
         altitude = (1 - (pressure / 101325.0) ** (1 / 5.25588)) / 2.25577e-5
-    return (json.dumps(f"{altitude:.0f} m ü.M."),
-            json.dumps(f"{pressure / 100.0:.0f} hPa"))
+    return (_fill(texts["altitude"], alt=f"{altitude:.0f}"),
+            _fill(texts["pressure"], hpa=f"{pressure / 100.0:.0f}"))
+
+
+def _js(obj):
+    """JSON for inlining into a ``<script>`` (UTF-8 kept, ``</`` escaped so a
+    user text cannot close the script element)."""
+    import json
+    return json.dumps(obj, ensure_ascii=False).replace("</", "<\\/")
+
+
+def _point_arg(value, name):
+    """``(t [°C], rh [%])`` → ``{"t": t, "rh": rh}`` for the JS overlay
+    helpers; ``None`` stays ``None``."""
+    import math as _m
+    if value is None:
+        return None
+    try:
+        t, rh = (float(v) for v in value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"{name} must be a (temperature °C, rel. humidity %) pair, "
+            f"got {value!r}") from None
+    if not (_m.isfinite(t) and _m.isfinite(rh)) or not 0 <= rh <= 100:
+        raise ValueError(
+            f"{name} needs a finite temperature and a relative humidity "
+            f"between 0 and 100 %, got {value!r}")
+    return {"t": t, "rh": rh}
 
 
 #: Upper absolute-humidity bound [kg/kg] meaning "no upper limit" (far beyond
@@ -593,16 +725,16 @@ _FREQ_JS_TEMPLATE = r"""
     pathsG.selectAll("path").data(contours).enter().append("path")
       .attr("d", function (d) { return contourPath(d.c); })
       .attr("fill", "none").attr("stroke", "#333").attr("stroke-width", 1.6).attr("opacity", 1);
-    let unitTxt = useDays ? " days/year outside" : " h/year outside";
+    let unitTxt = useDays ? __FREQ_DAYS_TEXT__ : __FREQ_HOURS_TEXT__;
     let hitG = freqHover.append("g").attr("clip-path", "url(#__SATCLIP_ID__)");
     hitG.selectAll("path").data(contours).enter().append("path")
       .attr("d", function (d) { return contourPath(d.c); })
       .attr("fill", "none").attr("stroke", "transparent").attr("stroke-width", 8)
       .style("pointer-events", "stroke").style("cursor", "crosshair")
-      .on("mouseover mousemove", function (d) {
+      .on("mouseover mousemove", function (event, d) {
         freqTip.style("opacity", 1).style("background-color", "white").style("color", "black")
-          .html(d.label + unitTxt)
-          .style("left", (d3.event.pageX + 15) + "px").style("top", (d3.event.pageY - 40) + "px");
+          .text(hxFormat(unitTxt, { n: d.label }))
+          .style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 40) + "px");
       })
       .on("mouseout", function () { freqTip.style("opacity", 0); });
     let labelG = freqLabels.append("g").attr("font-family", "helvetica").attr("font-size", 13).attr("font-weight", "bold");
@@ -649,13 +781,33 @@ def plot_mollier_hx(
     show_frequency: bool = False,
     frequency_unit: str = 'hours',
     frequency_smoothing: float = 4.0,
+    outdoor: Optional[Tuple[float, float]] = None,
+    current: Optional[Tuple[float, float]] = None,
+    outdoor_color: str = '#2563eb',
+    ventilation_line: bool = True,
+    ventilation_note: bool = True,
+    ventilation_threshold: float = 0.0003,
+    captions: Optional[Dict[str, str]] = None,
+    texts: Optional[Dict[str, str]] = None,
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
 
-    Uses D3.js for fast SVG rendering with iso-lines for temperature, enthalpy,
-    relative humidity and density, a comfort zone, and optional measured data
-    points colour-coded by season with interactive hover tooltips.
+    Uses D3.js (v7) for fast SVG rendering with iso-lines for temperature,
+    enthalpy, relative humidity and density, a comfort zone, and optional
+    measured data points colour-coded by season with interactive hover
+    tooltips. Optionally shows the outside air with the ventilation (mixing)
+    line from the room point and a note on whether airing dries the room.
+
+    Data points, comfort zone, warning bands and frequency lines are clipped
+    to the axes. The room point and the outside point are drawn on top; a
+    point outside the axes becomes an arrow on the edge pointing towards it,
+    labelled with its value (e.g. ``6.8 °C · 89 %``).
+
+    Every visible text can be replaced through ``captions`` (axis captions)
+    and ``texts`` (everything else); the defaults are English. See
+    :data:`MOLLIER_DEFAULT_CAPTIONS` and :data:`MOLLIER_DEFAULT_TEXTS` for
+    the keys.
 
     Args:
         data: Optional DataFrame with columns [timestamp, humidity, temperature].
@@ -682,10 +834,12 @@ def plot_mollier_hx(
             kg of moist air (per the Glück book, isotherms tilt slightly down).
         highlight_latest: When ``True`` (default), the row with the most recent
             timestamp is overlaid as a circle on top of the seasonal scatter
-            points. Set to ``False`` to disable.
-        highlight_color: CSS colour used for the latest-row overlay. Default
-            ``'black'``. Pass ``None`` to use that row's season colour (so the
-            highlight is visible only by size/order, not by colour).
+            points (the *room point*, also the start of the ventilation line).
+            Set to ``False`` to disable. Ignored when ``current`` is given.
+        highlight_color: CSS colour of the room point (latest row or
+            ``current``). Default ``'black'``. Pass ``None`` to use the latest
+            row's season colour (so the highlight is visible only by
+            size/order, not by colour; black for ``current``).
         states: Optional sequence of ``MoistAirState`` objects (from
             :func:`pyedautils._mollier.state`). When supplied, each state is
             drawn as a numbered point and consecutive states are connected by
@@ -693,10 +847,11 @@ def plot_mollier_hx(
             psychrosim.com. Works alongside ``data`` (historical scatter is
             drawn underneath).
         labels: Optional sequence of strings used as point labels (default
-            is the index ``"0"``, ``"1"``, …). Length must match ``states``.
+            is the number ``"1"``, ``"2"``, …). Length must match ``states``.
         comfort_label: Legend caption for the comfort-zone polygon. Default
             ``"Comfort zone"``. Override e.g. to ``"Komfortzone"`` for German
             output or to a custom designation like ``"DIN EN 16798 Cat II"``.
+            Same as ``texts["comfort_zone"]`` (which wins if both are given).
         comfort_zone_orange: Optional warning band drawn as a **dashed orange
             outline** (no fill). Off by default (``None``). A dict with keys
             ``"temperature"``, ``"rel_humidity"``, ``"abs_humidity"``, each
@@ -738,18 +893,21 @@ def plot_mollier_hx(
             value labels. Default ``True``. The 100 % saturation curve (the
             chart boundary) is always drawn regardless of this flag.
         show_enthalpy: Draw the iso-enthalpy lines together with their value
-            labels and the ``"Enthalpy h [kJ/kg]"`` caption. Default
+            labels and the ``"Enthalpy [kJ/kg]"`` caption. Default
             ``True``. Set ``False`` to hide everything enthalpy-related.
         show_abs_humidity: Draw the vertical iso-lines of constant absolute
             humidity (at the bottom-axis tick values). Default ``True``.
         x_axis_title: Caption centred below the bottom axis. Default
             ``"absolute water content x [g/kg]"``. Pass ``""`` to omit it.
+            Same as ``captions["x_axis_title"]`` (which wins if both are
+            given).
         season_labels: Optional mapping from the English season keys
             ``"Winter"``, ``"Spring"``, ``"Summer"``, ``"Fall"`` to the labels
             shown in the seasonal scatter tooltips and legend. Defaults to the
             English keys themselves. Pass
             ``pyedautils.plots._constants._SEASON_LABELS_DE`` (or any custom
-            dict) for German output.
+            dict) for German output. Same as ``texts["season_winter"]`` etc.
+            (which win if both are given).
         show_frequency: Draw cumulative-frequency contour lines ("risk
             hours/days") over the scatter. Each line labelled N encloses all
             but N units of the year, so the outer lines mark rare conditions
@@ -762,11 +920,54 @@ def plot_mollier_hx(
             ~0.6 (angular) to ~9 (very round). Default ``4.0``. Purely
             geometric — it rounds the curves but never enlarges the enclosed
             region.
+        outdoor: Optional outside air as ``(temperature [°C], relative
+            humidity [%])`` — the same units as the ``data`` columns, e.g.
+            ``(4.0, 85)``. Drawn as a hollow circle (an edge arrow when outside
+            the axes). With a room point (``current`` or the latest row) a
+            dashed **ventilation line** joins the two: airing moves the room
+            air along it. A note above the axes says whether airing dries the
+            room (outside air holds more than ``ventilation_threshold`` less
+            water), adds moisture (more), or makes no noticeable change — see
+            :func:`pyedautils.comfort.ventilation_effect`.
+        current: Optional room point as ``(temperature [°C], relative
+            humidity [%])``, e.g. a live reading. Replaces the latest-row
+            highlight as the room point; works without ``data``.
+        outdoor_color: CSS colour of the outside point, the ventilation line
+            and the note. Default ``'#2563eb'`` (blue).
+        ventilation_line: Draw the ventilation line (and the note) between
+            the room point and ``outdoor``. Default ``True``.
+        ventilation_note: Show the ventilation note above the axes. Default
+            ``True``; needs the ventilation line.
+        ventilation_threshold: Difference in absolute humidity [kg/kg] up to
+            which airing counts as "no change". Default ``0.0003`` (0.3 g/kg).
+        captions: Optional dict overriding the axis captions, merged over
+            :data:`MOLLIER_DEFAULT_CAPTIONS` (keys ``temperature``,
+            ``rel_humidity``, ``density``, ``enthalpy``, ``x_axis``,
+            ``x_axis_title``). ``""`` hides a caption. The right-edge captions
+            shrink (8–12 px) to fit the chart height. Unknown keys raise
+            ``ValueError``.
+        texts: Optional dict overriding any other visible text, merged over
+            :data:`MOLLIER_DEFAULT_TEXTS`: outside air and ventilation note,
+            edge-arrow value label, tooltips, frequency-line tooltip,
+            altitude / pressure line, legend (comfort zone, seasons, room
+            point). ``""`` hides the altitude / pressure line or the note.
+            Unknown keys raise ``ValueError``. Example (German)::
+
+                texts={"outdoor": "Aussenluft", "room": "Raum",
+                       "ventilation_dries": "Lüften trocknet",
+                       "ventilation_humidifies": "Lüften befeuchtet",
+                       "ventilation_neutral": "Lüften: keine Änderung",
+                       "altitude": "{alt} m ü. M.", "latest": "Letzter Wert"}
 
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
             Can be saved to a file, used with ``streamlit.components.v1.html()``,
             or displayed in a Jupyter notebook via ``IPython.display.HTML()``.
+
+    See Also:
+        How to read the h,x diagram correctly, what the comfort zone and
+        warning bands mean, and how to save energy:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html
     """
     import json
 
@@ -779,15 +980,18 @@ def plot_mollier_hx(
 
     convention = _check_convention(convention)
     js = _load_d3_js()
+    caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
+                               season_labels)
+    outdoor_pt = _point_arg(outdoor, "outdoor")
+    current_pt = _point_arg(current, "current")
 
-    # Season display labels — English keys by default; callers may pass a
-    # mapping (e.g. _SEASON_LABELS_DE) for other languages.
-    if season_labels is None:
-        season_labels = {k: k for k in DEFAULT_SEASON_COLORS}
+    # Season display labels (English keys -> shown label).
+    season_labels = {k: txt["season_" + k.lower()] for k in _SEASON_KEYS}
 
     # Prepare data JSON
     data_json = "null"
     current_json = "null"
+    latest = None
     if data is not None and not data.empty:
         df = data.copy()
         df.columns = ["timestamp", "humidity", "temperature"]
@@ -812,11 +1016,34 @@ def plot_mollier_hx(
                     "xg": round(xv * 1000, 2),
                 })
             data_json = json.dumps(records)
-            if highlight_latest:
+            if highlight_latest and current_pt is None:
                 # Find the record with the most recent timestamp (don't assume
                 # the input DataFrame is sorted).
                 idx_latest = df["timestamp"].values.argmax()
-                current_json = json.dumps(records[idx_latest])
+                latest = records[idx_latest]
+                current_json = json.dumps(latest)
+
+    # Room point (start of the ventilation line): an explicit ``current``
+    # reading, else the highlighted latest row.
+    room_json = "null"
+    if current_pt is not None:
+        room_json = json.dumps({
+            "state": current_pt, "title": txt["now"], "ts": None,
+            "color": highlight_color or "black", "legend": txt["room"]})
+    elif latest is not None:
+        season_key = {v: k for k, v in season_labels.items()}.get(latest["season"])
+        room_json = json.dumps({
+            "state": {"x": latest["x"], "y": latest["y"]},
+            "title": txt["latest"], "ts": latest["ts"],
+            "color": highlight_color or DEFAULT_SEASON_COLORS.get(season_key, "#999"),
+            "legend": txt["latest"]})
+    outdoor_json = json.dumps(outdoor_pt)
+    outdoor_opts_js = json.dumps({
+        "color": outdoor_color, "ventilationLine": bool(ventilation_line),
+        "note": bool(ventilation_note),
+        "threshold": abs(float(ventilation_threshold)),
+    })
+    texts_js = _js(txt)
 
     # Process-chain points. Each record carries both a short integer ``number``
     # (1-based, drawn inside the chart circle) and a free-form ``label``
@@ -868,26 +1095,26 @@ def plot_mollier_hx(
      red_color_js, red_label_js) = _band_js(band_r)
 
     # Altitude / pressure annotation (top-right).
-    info_alt_js, info_pressure_js = _altitude_pressure_labels(pressure, altitude)
+    info_alt, info_pressure = _altitude_pressure_labels(pressure, altitude, txt)
+    info_lines_js = _js([v for v in (info_alt, info_pressure) if v])
 
     domain_x_js = json.dumps(list(domain_x))
     domain_y_js = json.dumps(list(domain_y))
     highlight_color_js = json.dumps(highlight_color)
-    comfort_label_js = json.dumps(comfort_label)
-    hx_opts_js = json.dumps({
+    comfort_label_js = _js(txt["comfort_zone"])
+    hx_opts_js = _js({
         "showTemperature": bool(show_temperature),
         "showDensity": bool(show_density),
         "showRelHumidity": bool(show_rel_humidity),
         "showEnthalpy": bool(show_enthalpy),
         "showAbsHumidity": bool(show_abs_humidity),
-        "xAxisTitle": x_axis_title,
+        "captions": caps,
     })
 
     import uuid
     uid = uuid.uuid4().hex[:8]
     diagram_id = f"mollier_{uid}"
     tooltip_id = f"tt_{uid}"
-    plot_id = f"plot_{uid}"
     clip_id = f"clip_{uid}"
 
     # Frequency-line JS: substitute the injected values into the template.
@@ -899,26 +1126,28 @@ def plot_mollier_hx(
         .replace("__FREQ_SHOW__", "true" if show_frequency else "false")
         .replace("__FREQ_DAYS__", "true" if freq_unit == "days" else "false")
         .replace("__FREQ_SMOOTH__", repr(float(frequency_smoothing)))
+        .replace("__FREQ_HOURS_TEXT__", _js(txt["freq_hours"]))
+        .replace("__FREQ_DAYS_TEXT__", _js(txt["freq_days"]))
         .replace("__SATCLIP_ID__", f"freqSat_{uid}")
         .replace("__TOOLTIP_ID__", tooltip_id)
     )
 
-    season_colors = json.dumps(
+    season_colors = _js(
         {season_labels[k]: c for k, c in DEFAULT_SEASON_COLORS.items()})
     # Legend entries (Spring, Summer, Fall, Winter) and the set of "dark"
     # season labels whose tooltip background needs white text.
-    season_legend_js = json.dumps([
+    season_legend_js = _js([
         {"label": season_labels[k], "color": DEFAULT_SEASON_COLORS[k]}
         for k in ("Spring", "Summer", "Fall", "Winter")
     ])
-    dark_labels_js = json.dumps([season_labels["Winter"], season_labels["Fall"]])
+    dark_labels_js = _js([season_labels["Winter"], season_labels["Fall"]])
 
     return f"""<div id="{diagram_id}" style="width:100%;background:white;"></div>
 <div id="{tooltip_id}" style="position:absolute;background:rgba(255,255,255,0.9);\
 border-radius:4px;padding:6px 8px;pointer-events:none;\
 font-family:Tahoma,Geneva,sans-serif;font-size:11px;\
 box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
-<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="{_D3_URL}"></script>
 <script>
 (function() {{
 {js["mollier_functions"]}
@@ -934,12 +1163,15 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let rangeX = {comfort_x};
   let dataRecords = {data_json};
   let currentRecord = {current_json};
+  let roomPoint = {room_json};
+  let outdoorPoint = {outdoor_json};
+  let outdoorOpts = {outdoor_opts_js};
+  let T = {texts_js};
   let statePoints = {states_json};
   let showStateLegend = {state_legend_js};
   let hasComfort = {has_comfort_js};
   let comfortLabel = {comfort_label_js};
-  let infoAlt = {info_alt_js};
-  let infoPressure = {info_pressure_js};
+  let infoLines = {info_lines_js};
   let hasOrange = {has_orange_js};
   let orangeT = {orange_t}; let orangePhi = {orange_phi}; let orangeX = {orange_x};
   let orangeColor = {orange_color_js}; let orangeLabel = {orange_label_js};
@@ -961,12 +1193,11 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   let height = Height - margin.top - margin.bottom;
 
   let svg = d3.select("#{diagram_id}").append("svg")
-    .attr("width", Width).attr("height", Height);
-  let bg = svg.append("g").attr("id", "{plot_id}");
+    .attr("display", "block").attr("width", Width).attr("height", Height);
+  let bg = svg.append("g");
   let defs = svg.append("defs");
-  defs.append("svg:clipPath")
-    .attr("id", "{clip_id}").append("svg:rect")
-    .attr("width", width).attr("height", height);
+  // Data, comfort zone, bands and frequency lines are clipped to the axes.
+  let clipUrl = hxAddClipPath(svg, "{clip_id}", width, height);
   // Arrow head for process-chain segments.
   defs.append("marker")
     .attr("id", "arrow-{uid}")
@@ -977,108 +1208,86 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     .append("path").attr("d", "M 0 0 L 10 5 L 0 10 z").attr("fill", "#444");
   let plot = svg.append("g")
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
-    .attr("clip-path", "url(#{clip_id})");
+    .attr("clip-path", clipUrl);
 
   drawHXCoordinates(bg, Width, Height, margin, domainX, domainY, p, mollier, hxOpts);
 
   // Altitude / pressure annotation, top-right (dark grey).
-  let infoG = svg.append("g")
+  let infoG = svg.append("g").attr("class", "hx-info")
     .style("font-family", "Tahoma, Geneva, sans-serif");
-  infoG.append("text")
-    .attr("x", margin.left + width).attr("y", margin.top - 22)
-    .attr("text-anchor", "end").attr("fill", "#4d4d4d").attr("font-size", 12)
-    .text(infoAlt);
-  infoG.append("text")
-    .attr("x", margin.left + width).attr("y", margin.top - 8)
-    .attr("text-anchor", "end").attr("fill", "#4d4d4d").attr("font-size", 12)
-    .text(infoPressure);
+  infoLines.forEach(function(t, i) {{
+    infoG.append("text")
+      .attr("x", margin.left + width)
+      .attr("y", margin.top - 8 - 14 * (infoLines.length - 1 - i))
+      .attr("text-anchor", "end").attr("fill", "#4d4d4d").attr("font-size", 12)
+      .text(t);
+  }});
 
   let x = d3.scaleLinear().range([0, width]).domain(domainX);
   let y = d3.scaleLinear().range([height, 0]).domain(domainY);
+  let ctx = {{x: x, y: y, width: width, height: height, mollier: mollier, pressure: p}};
+  let tooltip = d3.select("#{tooltip_id}");
+  function showTip(event, html, bgColor, fgColor) {{
+    tooltip.style("opacity", 1).style("background-color", bgColor)
+      .style("color", fgColor).html(html)
+      .style("left", (event.pageX + 15) + "px")
+      .style("top", (event.pageY - 40) + "px");
+  }}
+  function hideTip() {{ tooltip.style("opacity", 0); }}
+  function esc(s) {{
+    return String(s).replace(/[&<>"]/g, function(c) {{
+      return {{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}}[c];
+    }});
+  }}
 
   let line = d3.line().x(d => x(d.x)).y(d => y(d.y));
   let pathos = hasComfort ? createComfort(rangeT, rangePhi, rangeX, p, mollier) : null;
   if (hasComfort && pathos && pathos.length > 0) {{
-    plot.append("path").datum(pathos).attr("d", line)
+    plot.append("path").attr("class", "hx-comfort").datum(pathos).attr("d", line)
       .attr("fill", "yellowgreen").attr("fill-opacity", 0.4)
       .attr("stroke", "yellowgreen");
   }}
 
   // Extra warning bands: dashed outline only (no fill).
-  function drawBand(rangeT, rangePhi, rangeX, color) {{
+  function drawBand(rangeT, rangePhi, rangeX, color, cls) {{
     let pb = createComfort(rangeT, rangePhi, rangeX, p, mollier);
     if (pb && pb.length > 0) {{
-      plot.append("path").datum(pb).attr("d", line)
+      plot.append("path").attr("class", cls).datum(pb).attr("d", line)
         .attr("fill", "none").attr("stroke", color)
         .attr("stroke-width", 1.8).attr("stroke-dasharray", "7,4");
     }}
   }}
-  if (hasOrange) drawBand(orangeT, orangePhi, orangeX, orangeColor);
-  if (hasRed) drawBand(redT, redPhi, redX, redColor);
+  if (hasOrange) drawBand(orangeT, orangePhi, orangeX, orangeColor, "hx-band-orange");
+  if (hasRed) drawBand(redT, redPhi, redX, redColor, "hx-band-red");
 
   if (dataRecords && dataRecords.length > 0) {{
-    let tooltip = d3.select("#{tooltip_id}");
-
     for (let i = dataRecords.length - 1; i > 0; i--) {{
       let j = Math.floor(Math.random() * (i + 1));
       [dataRecords[i], dataRecords[j]] = [dataRecords[j], dataRecords[i]];
     }}
 
-    plot.selectAll("circle").data(dataRecords).enter().append("circle")
+    plot.append("g").attr("class", "hx-scatter")
+      .selectAll("circle").data(dataRecords).enter().append("circle")
       .attr("cx", d => x(d.x)).attr("cy", d => y(d.y))
       .attr("r", 5).attr("fill", d => colorMap[d.season] || "#999")
       .attr("opacity", 0.4).attr("shape-rendering", "optimizeSpeed")
-      .on("mouseover", function(d) {{
+      .on("mouseover", function(event, d) {{
         d3.select(this).attr("r", 10).attr("opacity", 0.9);
-        tooltip.style("opacity", 1)
-          .style("background-color", colorMap[d.season] || "#999")
-          .style("color",
-            (darkLabels.indexOf(d.season) >= 0) ? "white" : "black")
-          .html(d.ts + "<br>x: " + d.xg + " g/kg<br>T: " + d.temp
-            + " °C<br>φ: " + d.phi + " %")
-          .style("left", (d3.event.pageX + 15) + "px")
-          .style("top", (d3.event.pageY - 40) + "px");
+        showTip(event, esc(d.ts) + "<br>" + esc(T.tip_x) + ": " + d.xg + " g/kg<br>"
+            + esc(T.tip_t) + ": " + d.temp + " °C<br>" + esc(T.tip_phi) + ": " + d.phi + " %",
+          colorMap[d.season] || "#999",
+          (darkLabels.indexOf(d.season) >= 0) ? "white" : "black");
       }})
-      .on("mouseout", function(d) {{
+      .on("mouseout", function() {{
         d3.select(this).attr("r", 5).attr("opacity", 0.4);
-        tooltip.style("opacity", 0);
+        hideTip();
       }});
-
-    // Latest record drawn on top of all seasonal points.
-    if (currentRecord) {{
-      let latestFill = highlightColor !== null
-        ? highlightColor
-        : (colorMap[currentRecord.season] || "#999");
-      plot.append("g").attr("id", "current-point")
-        .append("circle")
-          .datum(currentRecord)
-          .attr("cx", x(currentRecord.x)).attr("cy", y(currentRecord.y))
-          .attr("r", 6).attr("fill", latestFill)
-          .attr("stroke", "white").attr("stroke-width", 1.5)
-          .style("cursor", "pointer")
-          .on("mouseover", function(d) {{
-            d3.select(this).attr("r", 10);
-            tooltip.style("opacity", 1)
-              .style("background-color", latestFill)
-              .style("color", "white")
-              .html("Latest: " + d.ts
-                + "<br>x: " + d.xg + " g/kg<br>T: " + d.temp
-                + " °C<br>φ: " + d.phi + " %")
-              .style("left", (d3.event.pageX + 15) + "px")
-              .style("top", (d3.event.pageY - 40) + "px");
-          }})
-          .on("mouseout", function() {{
-            d3.select(this).attr("r", 6);
-            tooltip.style("opacity", 0);
-          }});
-    }}
-
   }}
 
   // Process chain: numbered state points joined by arrows.
   if (statePoints && statePoints.length > 0) {{
-    let tooltip = d3.select("#{tooltip_id}");
-    let chain = plot.append("g").attr("id", "process-chain");
+    let chain = plot.append("g").attr("id", "process-chain-{uid}")
+      .attr("class", "process-chain");
 
     for (let i = 1; i < statePoints.length; i++) {{
       let a = statePoints[i - 1];
@@ -1094,19 +1303,14 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       .append("g").attr("class", "state")
       .attr("transform", d => "translate(" + x(d.x) + "," + y(d.y) + ")")
       .style("cursor", "pointer")
-      .on("mouseover", function(d) {{
-        tooltip.style("opacity", 1)
-          .style("background-color", "#222")
-          .style("color", "white")
-          .html(d.label
-            + "<br>T: " + d.t + " °C"
-            + "<br>φ: " + d.phi + " %"
-            + "<br>x: " + d.xg + " g/kg"
-            + "<br>h: " + d.h + " kJ/kg")
-          .style("left", (d3.event.pageX + 15) + "px")
-          .style("top", (d3.event.pageY - 40) + "px");
+      .on("mouseover", function(event, d) {{
+        showTip(event, esc(d.label)
+            + "<br>" + esc(T.tip_t) + ": " + d.t + " °C"
+            + "<br>" + esc(T.tip_phi) + ": " + d.phi + " %"
+            + "<br>" + esc(T.tip_x) + ": " + d.xg + " g/kg"
+            + "<br>" + esc(T.tip_h) + ": " + d.h + " kJ/kg", "#222", "white");
       }})
-      .on("mouseout", function() {{ tooltip.style("opacity", 0); }});
+      .on("mouseout", hideTip);
 
     nodes.append("circle")
       .attr("r", 11).attr("fill", "#222")
@@ -1118,6 +1322,49 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       .text(d => d.number);
   }}
 {freq_js}
+  // ----- Room point, outside air, ventilation line (unclipped, on top) ----
+  // Points outside the axes become an arrow on the edge with their value.
+  let top = svg.append("g").attr("class", "hx-top")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+  function stateLines(s) {{
+    let td = mollier.temperature_p_sat(s.phi * mollier.p_sat(s.t));
+    return [esc(T.tip_x) + ": " + (s.x * 1000).toFixed(2) + " g/kg",
+            esc(T.tip_t) + ": " + s.t.toFixed(1) + " °C",
+            esc(T.tip_phi) + ": " + (s.phi * 100).toFixed(0) + " %",
+            esc(T.tip_td) + ": " + (td == null || !isFinite(td) ? "–" : td.toFixed(1)) + " °C"];
+  }}
+  let roomState = roomPoint ? hxState(roomPoint.state, mollier, p) : null;
+  if (outdoorPoint) {{
+    let res = hxDrawOutdoor(top, ctx, outdoorPoint, roomState,
+      Object.assign({{}}, outdoorOpts, {{texts: T}}));
+    if (res.outdoor && res.marker) {{
+      let lines = [esc(T.outdoor)].concat(stateLines(res.outdoor));
+      if (res.note) lines.push(esc(res.note));
+      res.marker.style("cursor", "pointer")
+        .on("mouseover", function(event) {{
+          showTip(event, lines.join("<br>"), outdoorOpts.color, "white");
+        }})
+        .on("mouseout", hideTip);
+    }}
+  }}
+  if (roomPoint) {{
+    let pt = hxDrawStatePoint(top, ctx, roomPoint.state,
+      {{color: roomPoint.color, className: "hx-current current-point", texts: T}});
+    if (pt) {{
+      let lines = [esc(roomPoint.title) + (roomPoint.ts ? ": " + esc(roomPoint.ts) : "")]
+        .concat(stateLines(pt.state));
+      pt.marker.style("cursor", "pointer")
+        .on("mouseover", function(event) {{
+          if (!pt.outside) d3.select(this).attr("r", 10);
+          showTip(event, lines.join("<br>"), roomPoint.color, "white");
+        }})
+        .on("mouseout", function() {{
+          if (!pt.outside) d3.select(this).attr("r", 6);
+          hideTip();
+        }});
+    }}
+  }}
+
   // ----- Combined legend (bottom-right) ----------------------------------
   let legendItems = [];
   if (statePoints && statePoints.length > 0 && showStateLegend) {{
@@ -1125,7 +1372,13 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       legendItems.push({{type: "process", number: sp.number, label: sp.label}});
     }}
   }}
-  if (hasComfort && pathos && pathos.length > 0) {{
+  if (outdoorPoint && roomPoint && roomPoint.legend) {{
+    legendItems.push({{type: "point", color: roomPoint.color, label: roomPoint.legend}});
+  }}
+  if (outdoorPoint && T.outdoor) {{
+    legendItems.push({{type: "hollow", color: outdoorOpts.color, label: T.outdoor}});
+  }}
+  if (hasComfort && pathos && pathos.length > 0 && comfortLabel) {{
     legendItems.push({{type: "rect", color: "#9ACD32", label: comfortLabel}});
   }}
   if (hasOrange && orangeLabel) {{
@@ -1136,28 +1389,23 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
   }}
   if (dataRecords && dataRecords.length > 0) {{
     for (let s of seasonLegend) {{
-      legendItems.push({{type: "circle", color: s.color, label: s.label}});
+      if (s.label) legendItems.push({{type: "circle", color: s.color, label: s.label}});
     }}
   }}
 
   if (legendItems.length > 0) {{
-    let rowH = 20;
-    let legendH = legendItems.length * rowH + 10;
-    let legendW = 150;
-    // Anchor bottom-right of the plot area, but keep enough margin from the
-    // right and bottom edges so that the enthalpy-axis labels (which sit at
-    // plot-local x = width-20 and y = height-20) stay visible.
-    let lx = margin.left + width - legendW - 50;
-    let ly = margin.top + height - legendH - 35;
-    let legendG = svg.append("g")
-      .attr("transform", "translate(" + lx + "," + ly + ")");
-    legendG.append("rect")
-      .attr("x", -6).attr("y", -6)
-      .attr("width", legendW + 12).attr("height", legendH + 6)
+    // Small charts: a slightly smaller legend in two columns, so it stays in
+    // the empty corner below the saturation curve.
+    let compact = height < 450;
+    let scale = compact ? 0.85 : 1;
+    let ncol = (compact && legendItems.length > 4) ? 2 : 1;
+    let nrow = Math.ceil(legendItems.length / ncol);
+    let rowH = 20, colGap = 16;
+    let legendG = svg.append("g").attr("class", "hx-legend");
+    let frame = legendG.append("rect")
       .attr("fill", "white").attr("stroke", "#bbb").attr("rx", 3);
-    legendItems.forEach((item, i) => {{
-      let g = legendG.append("g")
-        .attr("transform", "translate(0," + (i * rowH + 5) + ")");
+    let groups = legendItems.map((item) => {{
+      let g = legendG.append("g");
       if (item.type === "process") {{
         g.append("circle")
           .attr("cx", 10).attr("cy", 8).attr("r", 10)
@@ -1166,30 +1414,51 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
           .attr("x", 10).attr("y", 8).attr("text-anchor", "middle").attr("dy", "0.35em")
           .attr("fill", "white").attr("font-size", "10px").attr("font-weight", "bold")
           .text(item.number);
-        g.append("text").attr("x", 26).attr("y", 12)
-          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
-          .text(item.label);
       }} else if (item.type === "rect") {{
         g.append("rect").attr("x", 2).attr("y", 1).attr("width", 14).attr("height", 14)
           .attr("fill", item.color).attr("opacity", 0.7);
-        g.append("text").attr("x", 22).attr("y", 12)
-          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
-          .text(item.label);
       }} else if (item.type === "dashes") {{
         g.append("line").attr("x1", 1).attr("y1", 8).attr("x2", 17).attr("y2", 8)
           .attr("stroke", item.color).attr("stroke-width", 2)
           .attr("stroke-dasharray", "5,3");
-        g.append("text").attr("x", 22).attr("y", 12)
-          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
-          .text(item.label);
+      }} else if (item.type === "hollow") {{
+        g.append("circle").attr("cx", 9).attr("cy", 8).attr("r", 5)
+          .attr("fill", "white").attr("stroke", item.color).attr("stroke-width", 2.5);
+      }} else if (item.type === "point") {{
+        g.append("circle").attr("cx", 9).attr("cy", 8).attr("r", 5.5)
+          .attr("fill", item.color).attr("stroke", "white").attr("stroke-width", 1.5);
       }} else {{
         g.append("circle").attr("cx", 9).attr("cy", 8).attr("r", 5)
           .attr("fill", item.color).attr("opacity", 0.7);
-        g.append("text").attr("x", 22).attr("y", 12)
-          .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
-          .text(item.label);
       }}
+      g.append("text").attr("x", item.type === "process" ? 26 : 22).attr("y", 12)
+        .style("font-family", "Tahoma, Geneva, sans-serif").style("font-size", "12px")
+        .text(item.label);
+      return g;
     }});
+    // Column-major layout; each column as wide as its longest label.
+    let colX = 0, legendW = 0;
+    for (let c = 0; c < ncol; c++) {{
+      let colW = 0;
+      for (let r = 0; r < nrow; r++) {{
+        let i = c * nrow + r;
+        if (i >= groups.length) break;
+        groups[i].attr("transform", "translate(" + colX + "," + (r * rowH + 5) + ")");
+        colW = Math.max(colW, groups[i].node().getBBox().width);
+      }}
+      legendW = colX + colW;
+      colX += colW + colGap;
+    }}
+    legendW = Math.max(ncol === 1 ? 110 : 0, legendW);
+    let legendH = nrow * rowH + 10;
+    frame.attr("x", -6).attr("y", -6)
+      .attr("width", legendW + 12).attr("height", legendH + 6);
+    // Anchor bottom-right of the plot area, clear of the enthalpy-axis
+    // labels (plot-local x = width-20, y = height-20).
+    let lx = Math.max(margin.left + 8, margin.left + width - scale * legendW - (compact ? 40 : 50));
+    let ly = margin.top + height - scale * legendH - (compact ? 26 : 35);
+    legendG.attr("transform", "translate(" + lx + "," + ly + ")"
+      + (scale !== 1 ? " scale(" + scale + ")" : ""));
   }}
 }})();
 </script>"""
@@ -2337,18 +2606,29 @@ def plot_mollier_hx_fast(
     show_points: bool = True,
     mean_enthalpy: bool = False,
     mean_temperature: bool = False,
+    outdoor: Optional[Tuple[float, float]] = None,
+    current: Optional[Tuple[float, float]] = None,
+    outdoor_color: str = '#2563eb',
+    ventilation_line: bool = True,
+    ventilation_note: bool = True,
+    ventilation_threshold: float = 0.0003,
+    captions: Optional[Dict[str, str]] = None,
+    texts: Optional[Dict[str, str]] = None,
 ) -> str:
     """Stateful, fast variant of :func:`plot_mollier_hx`.
 
     Renders with the d3-mollierhx ``MollierChart`` class: the coordinate grid is
     drawn once and the overlays (measurement points, comfort zone, warning bands,
-    frequency lines, process chain) update in place. The created chart is exposed
-    on ``window["mollier_<uid>"]`` so an embedding app can call its update methods
-    (``setData``, ``setComfort``, ``setFrequency`` ...) without re-rendering — the
+    frequency lines, process chain, room and outside point) update in place. The
+    created chart is exposed on ``window["mollier_<uid>"]`` so an embedding app
+    can call its update methods (``setData``, ``setComfort``, ``setFrequency``,
+    ``setCurrent``, ``setOutdoor``, ``setTexts`` ...) without re-rendering — the
     basis for fast, interactive dashboards.
 
-    Same inputs as :func:`plot_mollier_hx` (including offset warning bands and
-    ``"abs_humidity": None`` for no abs-humidity limit), plus:
+    Same inputs as :func:`plot_mollier_hx` (including offset warning bands,
+    ``"abs_humidity": None`` for no abs-humidity limit, ``outdoor`` /
+    ``current`` with the ventilation line and note, and ``captions`` /
+    ``texts``), plus:
 
     Args:
         show_points: Draw the measurement points. ``False`` keeps only the
@@ -2358,12 +2638,20 @@ def plot_mollier_hx_fast(
         mean_temperature: Draw the mean-temperature curve (t_m, binned by
             enthalpy). Default ``False``.
 
-    A few legend-only options (``comfort_label``, ``highlight_latest``,
-    ``highlight_color``, ``season_labels``) are accepted for signature
-    compatibility but not yet used by the chart.
+    Differences to :func:`plot_mollier_hx`: the chart has no legend, so
+    ``comfort_label``, ``season_labels`` and the legend keys of ``texts``
+    (``comfort_zone``, ``season_*``, ``room``) are accepted but not shown; the
+    comfort zone is drawn only when ``comfort_zone`` is given. Data, comfort
+    zone, bands and frequency lines are clipped to the axes; room and outside
+    points outside the axes become edge arrows with their value.
 
     Returns:
-        str: Self-contained HTML (loads D3 from the CDN + an inline bundle).
+        str: Self-contained HTML (loads D3 v7 from the CDN + an inline bundle).
+
+    See Also:
+        :func:`plot_mollier_hx` for the full-featured variant. How to read the
+        diagram, comfort and saving energy:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html
     """
     import json
     import uuid
@@ -2371,19 +2659,31 @@ def plot_mollier_hx_fast(
     from pyedautils._mollier import _check_convention
     convention = _check_convention(convention)
     cid = "mollier_" + uuid.uuid4().hex[:8]
+    caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
+                               season_labels)
+    outdoor_pt = _point_arg(outdoor, "outdoor")
+    current_pt = _point_arg(current, "current")
+    freq_unit = str(frequency_unit).lower()
+    if freq_unit not in ("hours", "days"):
+        raise ValueError("frequency_unit must be 'hours' or 'days'")
 
-    records = []
+    records, latest, latest_ts = [], None, None
     if data is not None and len(data) > 0:
         df = data.copy()
         df.columns = ["timestamp", "humidity", "temperature"]
-        for row in df.itertuples(index=False):
+        stamps = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+        for k, row in enumerate(df.itertuples(index=False)):
             ts, hum, temp = row[0], row[1], row[2]
             if hum is None or temp is None or pd.isna(hum) or pd.isna(temp):
                 continue
-            records.append({
+            rec = {
                 "t": float(temp), "rh": float(hum),
                 "time": None if (ts is None or pd.isna(ts)) else str(ts),
-            })
+            }
+            records.append(rec)
+            st = stamps.iloc[k]
+            if not pd.isna(st) and (latest_ts is None or st > latest_ts):
+                latest, latest_ts = rec, st
 
     chain = []
     if states:
@@ -2405,23 +2705,41 @@ def plot_mollier_hx_fast(
     cz = None if comfort_zone is False else _comfort_ranges(comfort_zone)
     band_o, band_r = _resolve_bands(comfort_zone_orange, comfort_zone_red, cz)
 
+    # Room point: an explicit ``current`` reading, else the latest row.
+    room, room_color_js = None, json.dumps(highlight_color or "black")
+    if current_pt is not None:
+        room = current_pt
+    elif highlight_latest and latest is not None:
+        room = {"t": latest["t"], "rh": latest["rh"]}
+        txt["now"] = txt["latest"] + ": " + latest_ts.strftime("%Y-%m-%d %H:%M")
+        if highlight_color is None:   # season colour of the chart's palette
+            room_color_js = ("c.seasonColors[seasonIndex(toDate("
+                             + json.dumps(latest["time"]) + "))]")
+
+    chart_texts = dict(txt)
+    if altitude is not None:   # MollierChart derives it from the pressure
+        chart_texts["altitude"] = _fill(txt["altitude"], alt=f"{altitude:.0f}")
+
     opts = {
         "height": int(height), "convention": convention, "pressure": float(pressure),
         "domainX": list(domain_x), "domainY": list(domain_y),
         "lineOpts": {
             "showTemperature": bool(show_temperature), "showDensity": bool(show_density),
             "showRelHumidity": bool(show_rel_humidity), "showEnthalpy": bool(show_enthalpy),
-            "showAbsHumidity": bool(show_abs_humidity), "xAxisTitle": x_axis_title,
+            "showAbsHumidity": bool(show_abs_humidity), "xAxisTitle": caps["x_axis_title"],
         },
+        "captions": caps,
+        "texts": chart_texts,
+        "seasonLabels": [txt["season_" + k] for k in ("winter", "spring", "summer", "fall")],
     }
-    freq = {"show": bool(show_frequency), "days": (frequency_unit == "days"),
+    freq = {"show": bool(show_frequency), "days": (freq_unit == "days"),
             "smoothing": float(frequency_smoothing)}
 
-    calls = ["var c=new MollierChart('#" + cid + "'," + json.dumps(opts) + ");"]
+    calls = ["var c=new MollierChart('#" + cid + "'," + _js(opts) + ");"]
     if records:
         calls.append("c.setData(" + json.dumps(records) + ");")
     if chain:
-        calls.append("c.setProcessChain(" + json.dumps(chain) + ");")
+        calls.append("c.setProcessChain(" + _js(chain) + ");")
     calls.append("c.setComfort(" + json.dumps(
         _comfort_ranges(comfort_zone) if comfort_zone else None) + ");")
     calls.append("c.setBands(" + json.dumps(_band(band_o))
@@ -2432,12 +2750,20 @@ def plot_mollier_hx_fast(
     if mean_enthalpy or mean_temperature:
         calls.append("c.setMeanLines(" + json.dumps(
             {"h": bool(mean_enthalpy), "t": bool(mean_temperature)}) + ");")
+    if room is not None:
+        calls.append("c.setCurrent(" + json.dumps(room)
+                     + ",{color:" + room_color_js + "});")
+    if outdoor_pt is not None:
+        calls.append("c.setOutdoor(" + json.dumps(outdoor_pt) + "," + _js({
+            "color": outdoor_color, "ventilationLine": bool(ventilation_line),
+            "note": bool(ventilation_note),
+            "threshold": abs(float(ventilation_threshold))}) + ");")
     calls.append("window['" + cid + "']=c;")
 
     js = _load_d3_chart_js()
     return (
         '<div id="' + cid + '" style="width:100%"></div>\n'
-        '<script src="https://d3js.org/d3.v5.min.js"></script>\n'
+        '<script src="' + _D3_URL + '"></script>\n'
         '<script>' + js + '</script>\n'
         '<script>(function(){' + " ".join(calls) + '})();</script>'
     )

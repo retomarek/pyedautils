@@ -512,3 +512,77 @@ def comfort_warning_bands(
         "red": {"temperature": max(t1, t2), "rel_humidity": max(h1, h2),
                 "abs_humidity": max(x1, x2)},
     }
+
+
+# ---------------------------------------------------------------------------
+# Ventilation: does airing dry the room or add moisture?
+# ---------------------------------------------------------------------------
+#: ``|x_outdoor - x_room|`` up to this value [kg/kg] (0.3 g/kg) counts as
+#: "no noticeable change" in :func:`ventilation_effect`.
+VENTILATION_THRESHOLD = 0.0003
+
+
+def _abs_humidity(s, pressure: float) -> float:
+    """Absolute humidity [kg/kg] of ``(t [°C], rh [%])`` or of a state with ``.x``."""
+    from pyedautils._mollier import get_x_y
+    if hasattr(s, "x"):
+        return float(s.x)
+    try:
+        t, rh = s
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"expected a (temperature °C, rel. humidity %) pair, got {s!r}"
+        ) from None
+    x, _ = get_x_y(float(t), float(rh) / 100.0, float(pressure))
+    return float(x)
+
+
+def ventilation_effect(
+    room,
+    outdoor,
+    pressure: float = 101325.0,
+    threshold: float = VENTILATION_THRESHOLD,
+) -> str:
+    """What airing does to the room air: dry it, add moisture, or neither.
+
+    Airing mixes room and outside air, so the room state moves along the
+    straight line towards the outside state in the h,x diagram. Whether the
+    room gets drier depends only on the **absolute** humidity: outside air with
+    90 % relative humidity at 0 °C still dries a room at 21 °C, because it
+    holds less water per kg of air. The comparison is the same as the
+    ventilation note of :func:`pyedautils.plots.comfort.plot_mollier_hx`
+    (``outdoor=``) and of the d3-mollierhx overlay helpers.
+
+    Example::
+
+        >>> ventilation_effect(room=(21, 50), outdoor=(0, 80))
+        'dries'
+        >>> ventilation_effect(room=(16, 70), outdoor=(26, 60))
+        'humidifies'
+
+    Args:
+        room: Room air as ``(temperature [°C], relative humidity [%])`` or a
+            ``MoistAirState`` from :func:`pyedautils._mollier.state`.
+        outdoor: Outside air, same forms as ``room``.
+        pressure: Air pressure [Pa] used to convert ``(t, rh)`` pairs to
+            absolute humidity. Default 101325 (sea level).
+        threshold: Difference in absolute humidity [kg/kg] up to which airing
+            counts as ``"neutral"``. Default ``0.0003`` (0.3 g/kg).
+
+    Returns:
+        ``"dries"`` when the outside air holds more than ``threshold`` less
+        water than the room air, ``"humidifies"`` when it holds more than
+        ``threshold`` more, otherwise ``"neutral"``.
+
+    See Also:
+        Ventilating in winter and airing a cellar in summer, explained with
+        the h,x diagram:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-winter-ventilation
+    """
+    dx = _abs_humidity(outdoor, pressure) - _abs_humidity(room, pressure)
+    th = abs(float(threshold))
+    if dx < -th:
+        return "dries"
+    if dx > th:
+        return "humidifies"
+    return "neutral"

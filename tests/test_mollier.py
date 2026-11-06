@@ -800,7 +800,7 @@ class TestPlotMollierHx(unittest.TestCase):
     def test_basic_no_data(self):
         html = plot_mollier_hx()
         self.assertIsInstance(html, str)
-        self.assertIn("d3.v5.min.js", html)
+        self.assertIn("d3@7.9.0/dist/d3.min.js", html)
         self.assertIn("drawHXCoordinates", html)
         self.assertIn("createComfort", html)
 
@@ -1065,7 +1065,7 @@ class TestPlotMollierHxFast(unittest.TestCase):
     def test_basic_no_data(self):
         html = plot_mollier_hx_fast()
         self.assertIsInstance(html, str)
-        self.assertIn("d3.v5.min.js", html)
+        self.assertIn("d3@7.9.0/dist/d3.min.js", html)
         self.assertIn("class MollierChart", html)   # the bundle is inlined
         self.assertIn("new MollierChart", html)
         self.assertIn("<div id=", html)
