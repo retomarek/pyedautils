@@ -1,10 +1,97 @@
 """Statistical and exploratory plots."""
 
+import warnings
 from typing import List, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+
+
+# ---------------------------------------------------------------------------
+# Gap handling for lag-based methods (ACF, STL)
+# ---------------------------------------------------------------------------
+
+def _infer_step(index: pd.DatetimeIndex):
+    """Sampling step of a sorted, unique DatetimeIndex.
+
+    Returns the :func:`pandas.infer_freq` alias when the index is gap-free.
+    Otherwise the most common difference between consecutive timestamps as
+    a :class:`pandas.Timedelta`; month-like steps (28-31 days) become a
+    month-begin / month-end offset when every timestamp is on a month start
+    / end, so calendar months are not treated as fixed 31-day steps.
+    Returns ``None`` for fewer than two timestamps.
+    """
+    if len(index) < 2:
+        return None
+    if len(index) >= 3:
+        freq = pd.infer_freq(index)
+        if freq is not None:
+            return freq
+    step = index.to_series().diff().dropna().mode().iloc[0]
+    if pd.Timedelta(days=28) <= step <= pd.Timedelta(days=31):
+        if index.is_month_start.all():
+            return pd.offsets.MonthBegin()
+        if index.is_month_end.all():
+            return pd.offsets.MonthEnd()
+    return step
+
+
+def _fill_short_gaps(series: pd.Series, max_gap: int) -> pd.Series:
+    """Interpolate runs of at most ``max_gap`` consecutive NaN inside the
+    series; longer runs (and leading / trailing NaN) stay NaN entirely.
+
+    Unlike ``Series.interpolate(limit=max_gap)``, which fills the first
+    ``max_gap`` values of *every* gap, a gap longer than ``max_gap`` is not
+    partly filled.
+    """
+    na = series.isna()
+    if not na.any() or max_gap <= 0:
+        return series
+    run_id = (na != na.shift()).cumsum()
+    run_len = na.groupby(run_id).transform("sum")
+    fillable = na & (run_len <= max_gap)
+    method = "time" if isinstance(series.index, pd.DatetimeIndex) else "linear"
+    filled = series.interpolate(method=method, limit_area="inside")
+    return series.where(~fillable, filled)
+
+
+def _regularize(series: pd.Series, max_gap: int) -> pd.Series:
+    """Put ``series`` on a regular grid and fill short gaps.
+
+    A DatetimeIndex is sorted (duplicate timestamps averaged) and put on its
+    inferred sampling step (:func:`_infer_step`; a calendar step via
+    ``asfreq``, a fixed step by binning from the first timestamp with the
+    bin mean), so missing timestamps become explicit NaN; regular data is
+    unchanged. Then gaps of at most ``max_gap`` steps
+    are interpolated (:func:`_fill_short_gaps`). Leading and trailing NaN are
+    removed. Any other index is taken as already regular (positional).
+    """
+    s = series.astype(float)
+    if isinstance(s.index, pd.DatetimeIndex):
+        s = s.sort_index()
+        s = s.groupby(level=0).mean()
+        step = _infer_step(s.index)
+        if isinstance(step, pd.Timedelta):
+            s = s.resample(step, origin="start").mean()
+        elif step is not None:
+            s = s.asfreq(step)
+    s = _fill_short_gaps(s, max_gap)
+    valid = s.notna().to_numpy()
+    if not valid.any():
+        return s.iloc[0:0]
+    first = valid.argmax()
+    last = len(valid) - valid[::-1].argmax()
+    return s.iloc[first:last]
+
+
+def _longest_valid_run(series: pd.Series) -> pd.Series:
+    """Longest contiguous stretch of ``series`` without NaN."""
+    na = series.isna()
+    run_id = (na != na.shift()).cumsum()
+    lengths = (~na).groupby(run_id).sum()
+    best = lengths.idxmax()
+    return series[(run_id == best) & ~na]
 
 
 def plot_sum_frequency(
@@ -92,12 +179,30 @@ def plot_decomposition(
     title: str = "Time Series Decomposition",
     ylab: str = "Value",
     digits: int = 1,
+    max_gap: int = 6,
 ) -> go.Figure:
     """
     Decompose a time series into trend, seasonal, and remainder using STL.
 
     Works for both long-term (e.g. monthly over years, period=12) and
     short-term data (e.g. 15-min over days, period=96).
+
+    STL needs a regular series without missing values (the period is a
+    number of observations), so the data is prepared first:
+
+    1. The timestamps are sorted and aligned to the sampling step (the
+       inferred frequency, else the most common step between timestamps),
+       so missing timestamps become explicit gaps instead of shifting the
+       phase of the seasonal pattern.
+    2. Gaps of at most ``max_gap`` consecutive steps are linearly
+       interpolated (in time); leading and trailing gaps are trimmed.
+    3. If longer gaps remain, only the **longest contiguous segment**
+       without gaps is decomposed and a :class:`UserWarning` names the
+       segment. Fill or shorten the data yourself (or raise ``max_gap``)
+       to decompose a different stretch.
+
+    Raises a :class:`ValueError` when the series (or that segment) is
+    shorter than two full periods.
 
     Args:
         data: DataFrame with two columns: timestamp and value.
@@ -109,6 +214,8 @@ def plot_decomposition(
         title: Plot title.
         ylab: Y-axis label for the raw data panel.
         digits: Decimal places for rounding. Default 1.
+        max_gap: Longest gap (in sampling steps) that is interpolated.
+            Default 6. ``0`` disables interpolation.
 
     Returns:
         go.Figure: Plotly figure with 4 subplot rows
@@ -138,7 +245,23 @@ def plot_decomposition(
     if s_window is None:
         s_window = 2 * period + 1
 
-    ts = df.set_index("timestamp")["value"]
+    ts = _regularize(df.set_index("timestamp")["value"], max_gap)
+    if ts.isna().any():
+        n_total = len(ts)
+        ts = _longest_valid_run(ts)
+        warnings.warn(
+            f"plot_decomposition: the series has gaps longer than {max_gap} "
+            f"steps; STL needs a gap-free series, so only the longest "
+            f"contiguous segment ({ts.index[0]} to {ts.index[-1]}, "
+            f"{len(ts)} of {n_total} steps) is decomposed.",
+            UserWarning, stacklevel=2,
+        )
+    if len(ts) < 2 * period:
+        raise ValueError(
+            f"plot_decomposition needs at least two full periods "
+            f"(2 * {period} = {2 * period} gap-free observations), "
+            f"got {len(ts)}."
+        )
 
     stl_result = STL(ts, period=period, seasonal=s_window).fit()
 
@@ -156,7 +279,7 @@ def plot_decomposition(
         subplot_titles=list(components.keys()),
     )
 
-    timestamps = df["timestamp"]
+    timestamps = ts.index
 
     for i, (name, values) in enumerate(components.items(), start=1):
         rounded = [round(v, digits) for v in values]
@@ -543,16 +666,39 @@ def plot_autocorrelation(
     lags: int = 168,
     title: Optional[str] = None,
     height: int = 300,
+    max_gap: int = 6,
 ) -> go.Figure:
     """
     Create an autocorrelation plot with a confidence band using Plotly.
 
+    A lag is a fixed number of sampling steps, so the series is first put
+    on a regular time grid before the ACF is computed:
+
+    1. The DatetimeIndex is sorted and aligned to its sampling step (the
+       inferred frequency, else the most common step between timestamps),
+       so missing timestamps become explicit gaps instead of silently
+       shifting all later values by one or more lags.
+    2. Gaps of at most ``max_gap`` consecutive steps are linearly
+       interpolated (in time). Longer gaps are left empty *completely*;
+       they are not partly filled. Leading and trailing gaps are trimmed.
+    3. The ACF is computed on the regular series with statsmodels'
+       ``missing="conservative"``: each autocovariance uses only the pairs
+       of observations where both values are present, so the remaining
+       long gaps neither break the lag alignment nor are replaced by
+       invented values. As with the usual ``(n - k) / n`` factor of the
+       ACF, values at lags with fewer available pairs are shrunk towards
+       zero (never inflated). Without remaining gaps this is the ordinary
+       ACF.
+
     Args:
         data: DataFrame with a DatetimeIndex and one or more value columns.
+            A non-datetime index is taken as already regular (positional).
         column: Column to analyse. If *None*, uses the first column.
         lags: Number of lags to compute. Default 168 (one week at hourly).
         title: Plot title. Auto-generated if *None*.
         height: Figure height in pixels. Default 300.
+        max_gap: Longest gap (in sampling steps) that is interpolated.
+            Default 6. ``0`` disables interpolation.
 
     Returns:
         go.Figure: Plotly bar chart of autocorrelation values with a
@@ -566,8 +712,9 @@ def plot_autocorrelation(
     if column is None:
         column = df.columns[0]
 
-    series = df[column].interpolate(limit=6).dropna()
-    acf_values, confint = acf(series, nlags=lags, alpha=0.05)
+    series = _regularize(df[column], max_gap)
+    acf_values, confint = acf(series.to_numpy(), nlags=lags, alpha=0.05,
+                              missing="conservative")
 
     if title is None:
         title = f"Autocorrelation — {column}"
