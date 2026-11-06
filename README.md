@@ -65,10 +65,17 @@ New to the h,x diagram or the comfort compass? Two short guides explain how to r
 - [The h,x diagram in five minutes](https://retomarek.github.io/pyedautils/guides/mollier_hx.html): [reading the diagram](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-reading-the-diagram), [comfort](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-comfort), [saving energy](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-saving-energy)
 - [Reading the comfort compass](https://retomarek.github.io/pyedautils/guides/comfort_compass.html): [reading the compass](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-reading-the-diagram), [comfort](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-comfort), [saving energy](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-saving-energy)
 
+## Related projects
+
+- [d3-mollierhx](https://github.com/hslu-ige-laes/d3-mollierhx): the interactive Mollier h,x diagram for the browser, built on D3.js ([live demo](https://hslu-ige-laes.github.io/d3-mollierhx/)).
+- [Mollier hx Card](https://github.com/retomarek/mollier-hx-card): the h,x diagram as a Home Assistant dashboard card, with outside air and ventilation line.
+- [Comfort Compass Card](https://github.com/retomarek/comfort-compass-card): the comfort compass as a Home Assistant dashboard card: how many days were too warm, too humid, too dry or too cold.
+
 ## Questions and feedback
 
 - **Questions or ideas?** Ask in [Q&A](https://github.com/retomarek/pyedautils/discussions/categories/q-a).
 - **Found a bug or want a feature?** Open an [issue](https://github.com/retomarek/pyedautils/issues/new/choose).
+- **Find it useful?** A ⭐ on GitHub helps others find it.
 
 ## Repository images
 
