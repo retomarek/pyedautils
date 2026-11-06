@@ -5,13 +5,13 @@
 <p align="center"><b><a href="https://retomarek.github.io/pyedautils/">Documentation, examples and guides: retomarek.github.io/pyedautils</a></b></p>
 
 <p align="center">
-  <a href="https://pypi.org/project/pyedautils/"><img alt="PyPI Latest Release" src="https://img.shields.io/pypi/v/pyedautils?style=flat-square&color=41BDF5"></a>
-  <a href="https://pypi.org/project/pyedautils/"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white"></a>
-  <a href="https://github.com/retomarek/pyedautils/actions/workflows/python-unittest.yml"><img alt="CI - Test" src="https://img.shields.io/github/actions/workflow/status/retomarek/pyedautils/python-unittest.yml?branch=main&style=flat-square&label=tests"></a>
-  <a href="https://codecov.io/gh/retomarek/pyedautils"><img alt="Coverage" src="https://img.shields.io/codecov/c/github/retomarek/pyedautils?style=flat-square"></a>
-  <a href="https://pypi.org/project/pyedautils/"><img alt="PyPI Downloads" src="https://img.shields.io/pypi/dd/pyedautils?style=flat-square&label=PyPI%20downloads&color=9acd32"></a>
+  <a href="https://pypi.org/project/pyedautils/"><img alt="PyPI Latest Release" src="https://img.shields.io/pypi/v/pyedautils?style=flat-square&color=41BDF5&cacheSeconds=3600"></a>
+  <a href="https://pypi.org/project/pyedautils/"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white&cacheSeconds=3600"></a>
+  <a href="https://github.com/retomarek/pyedautils/actions/workflows/python-unittest.yml"><img alt="CI - Test" src="https://img.shields.io/github/actions/workflow/status/retomarek/pyedautils/python-unittest.yml?branch=main&style=flat-square&label=tests&cacheSeconds=3600"></a>
+  <a href="https://codecov.io/gh/retomarek/pyedautils"><img alt="Coverage" src="https://img.shields.io/codecov/c/github/retomarek/pyedautils?style=flat-square&cacheSeconds=3600"></a>
+  <a href="https://pypi.org/project/pyedautils/"><img alt="PyPI Downloads" src="https://img.shields.io/pypi/dd/pyedautils?style=flat-square&label=PyPI%20downloads&color=9acd32&cacheSeconds=3600"></a>
   <a href="https://retomarek.github.io/pyedautils/"><img alt="Documentation" src="https://img.shields.io/badge/docs-retomarek.github.io%2Fpyedautils-41BDF5?style=flat-square"></a>
-  <a href="https://github.com/retomarek/pyedautils/blob/main/LICENSE.txt"><img alt="License: MIT" src="https://img.shields.io/github/license/retomarek/pyedautils?style=flat-square"></a>
+  <a href="https://github.com/retomarek/pyedautils/blob/main/LICENSE.txt"><img alt="License: MIT" src="https://img.shields.io/github/license/retomarek/pyedautils?style=flat-square&cacheSeconds=3600"></a>
 </p>
 
 <p align="center">Python Energy Data Analysis Utilities: a pip-installable library of compact utility functions for analyzing and visualizing energy and comfort time-series data.</p>
