@@ -4,6 +4,11 @@ root: intro
 chapters:
   - file: installation
 
+  - file: guides/index
+    sections:
+      - file: guides/mollier_hx
+      - file: guides/comfort_compass
+
   - file: api/index
     sections:
       - file: api/data_io

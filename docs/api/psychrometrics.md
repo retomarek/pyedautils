@@ -15,6 +15,10 @@ from pyedautils._mollier import state, heat, mix, pressure_from_altitude
 
 See {doc}`../examples/mollier_hx` for usage examples.
 
+```{tip}
+New to the h,x diagram? {doc}`../guides/mollier_hx` explains {ref}`how to read it correctly <hx-reading-the-diagram>` (relative vs. absolute humidity, pressure, mould at cold surfaces), {ref}`comfort <hx-comfort>` and {ref}`saving energy <hx-saving-energy>`, with worked examples computed with these functions.
+```
+
 ## API Reference
 
 ```{eval-rst}
