@@ -1271,6 +1271,11 @@ def plot_comfort_donuts(
     Returns:
         go.Figure: Plotly figure with two donut traces and a vertical
         bullet-point legend under each.
+
+    See Also:
+        :func:`plot_comfort_compass` for the direction of the deviations, and
+        what the comfort zone and warning bands mean:
+        https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-comfort
     """
     df = data.copy()
     t = pd.to_numeric(df["temperature"], errors="coerce").dropna()
@@ -1822,6 +1827,11 @@ def plot_comfort_compass(
 
     Raises:
         ValueError: If ``scale`` is not ``None``, ``"fixed"`` or ``"fit"``.
+
+    See Also:
+        How to read the compass, compare rooms (``scale``), and what
+        the arms mean for comfort and energy:
+        https://retomarek.github.io/pyedautils/guides/comfort_compass.html
     """
     if scale is None:
         scale = "fixed" if fixed_scale else "fit"

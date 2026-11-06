@@ -398,6 +398,11 @@ def comfort_compass_distribution(
         dict mapping each key of :func:`comfort_compass_categories` to the
         number of (daily) samples in that category (all zeros when there is no
         valid sample).
+
+    See Also:
+        Choosing the comfort zone and the stage limits, and reading the
+        result with :func:`pyedautils.plots.comfort.plot_comfort_compass`:
+        https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-comfort
     """
     from collections import Counter
 
