@@ -11,7 +11,10 @@ bands of `plot_mollier_hx` (`comfort_warning_bands`), so the h,x diagram and
 the compass share one definition.
 
 See {doc}`../examples/comfort` for usage examples. The plotting
-counterparts live in {doc}`plots`.
+counterparts live in {doc}`plots`; the day counts of
+`comfort_compass_distribution` are drawn by `plot_comfort_compass` (green
+disc = share in range, arms = deviation direction and severity,
+`scale="fixed"` or `"fit"`).
 
 ## API Reference
 
