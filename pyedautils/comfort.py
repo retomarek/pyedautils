@@ -572,7 +572,7 @@ def ventilation_effect(
     See Also:
         Ventilating in winter and airing a cellar in summer, explained with
         the h,x diagram:
-        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-saving-energy
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-winter-ventilation
     """
     dx = _abs_humidity(outdoor, pressure) - _abs_humidity(room, pressure)
     th = abs(float(threshold))
