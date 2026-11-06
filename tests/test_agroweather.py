@@ -179,7 +179,7 @@ class TestDownloadDataByPlz(unittest.TestCase):
 
     @patch('pyedautils.weather.agroweather.download_data')
     @patch('pyedautils.weather.agroweather.find_nearest_station')
-    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.get_coordinates_ch_plz')
     def test_returns_dataframe(self, mock_plz, mock_nearest, mock_download):
         mock_plz.return_value = (47.05, 8.31)
         mock_nearest.return_value = 1
@@ -196,7 +196,7 @@ class TestDownloadDataByPlz(unittest.TestCase):
 
     @patch('pyedautils.weather.agroweather.download_data')
     @patch('pyedautils.weather.agroweather.find_nearest_station')
-    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.get_coordinates_ch_plz')
     def test_merges_multiple_stations(self, mock_plz, mock_nearest, mock_download):
         mock_plz.return_value = (47.05, 8.31)
         mock_nearest.side_effect = [1, 2, 1, 1]
@@ -222,7 +222,7 @@ class TestDownloadDataByPlz(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     @patch('pyedautils.weather.agroweather.find_nearest_station')
-    @patch('pyedautils.weather.agroweather.get_coordindates_ch_plz')
+    @patch('pyedautils.weather.agroweather.get_coordinates_ch_plz')
     def test_empty_sensors_returns_empty(self, mock_plz, mock_nearest):
         mock_plz.return_value = (47.05, 8.31)
         result = download_data_by_plz(6048, "2024-01-01", "2024-01-02", sensors=[])

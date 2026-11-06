@@ -56,10 +56,10 @@ df = download_data_by_plz(6048, "2025-07-01", "2025-07-31", tz="Europe/Zurich")
 
 ```python
 from pyedautils.weather.meteo_swiss import find_nearest_station
-from pyedautils.geopy import get_coordindates_ch_plz, get_altitude_lat_long
+from pyedautils.geopy import get_coordinates_ch_plz, get_altitude_lat_long
 
 # Get coordinates and altitude for Horw (PLZ 6048)
-coord = get_coordindates_ch_plz(6048)
+coord = get_coordinates_ch_plz(6048)
 altitude = get_altitude_lat_long(coord[0], coord[1])
 
 station = find_nearest_station(coord[0], coord[1], altitude, sensor="temp")
@@ -71,7 +71,7 @@ print(station)  # "LUZ"
 Available sensors: `temp`, `globrad`, `relhum`, `rain`
 
 ```python
-coord = get_coordindates_ch_plz(6197)
+coord = get_coordinates_ch_plz(6197)
 altitude = get_altitude_lat_long(coord[0], coord[1])
 
 print(find_nearest_station(coord[0], coord[1], altitude, sensor="temp"))     # "FLU"

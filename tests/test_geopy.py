@@ -9,6 +9,7 @@ from pyedautils.geopy import (
     get_lat_long_address,
     get_altitude_lv95,
     convert_wsg84_to_lv95,
+    get_coordinates_ch_plz,
     get_coordindates_ch_plz,
     get_distance_between_two_points,
     GeocodingError,
@@ -148,7 +149,7 @@ class TestGetCoordinatesChPlz(unittest.TestCase):
         mock_nom.query_postal_code.return_value = mock_data
         mock_nominatim_cls.return_value = mock_nom
 
-        result = get_coordindates_ch_plz(6048)
+        result = get_coordinates_ch_plz(6048)
         self.assertEqual(result, (47.0145, 8.3062))
 
     @patch('pyedautils.geopy.pgeocode.Nominatim')
@@ -161,13 +162,32 @@ class TestGetCoordinatesChPlz(unittest.TestCase):
         mock_nominatim_cls.return_value = mock_nom
 
         with self.assertRaises(GeocodingError):
-            get_coordindates_ch_plz(424242)
+            get_coordinates_ch_plz(424242)
 
     @patch('pyedautils.geopy.pgeocode.Nominatim')
     def test_pgeocode_exception(self, mock_nominatim_cls):
         mock_nominatim_cls.side_effect = Exception("pgeocode error")
 
         with self.assertRaises(GeocodingError):
+            get_coordinates_ch_plz(6048)
+
+    @patch('pyedautils.geopy.pgeocode.Nominatim')
+    def test_deprecated_alias_warns_and_delegates(self, mock_nominatim_cls):
+        mock_data = MagicMock()
+        mock_data.latitude.astype.return_value = 47.0145
+        mock_data.longitude.astype.return_value = 8.3062
+        mock_nominatim_cls.return_value.query_postal_code.return_value = mock_data
+
+        with self.assertWarnsRegex(DeprecationWarning, "get_coordinates_ch_plz") as cm:
+            result = get_coordindates_ch_plz(6048)
+        self.assertEqual(result, (47.0145, 8.3062))
+        self.assertEqual(cm.filename, __file__)   # points at the caller
+        mock_nominatim_cls.return_value.query_postal_code.assert_called_once_with(6048)
+
+    @patch('pyedautils.geopy.pgeocode.Nominatim')
+    def test_deprecated_alias_raises_like_new_name(self, mock_nominatim_cls):
+        mock_nominatim_cls.side_effect = Exception("pgeocode error")
+        with self.assertWarns(DeprecationWarning), self.assertRaises(GeocodingError):
             get_coordindates_ch_plz(6048)
 
 

@@ -3,6 +3,7 @@ import pgeocode
 import requests
 import pandas as pd
 import time
+import warnings
 from typing import List, Union, Tuple
 import math
 
@@ -121,7 +122,7 @@ def get_lat_long_address(address: str) -> Union[List[float], None]:
         raise GeocodingError(f"Failed to geocode address, Error: {e}") from e
 
 
-def get_coordindates_ch_plz(plz: int) -> Tuple[float, float]:
+def get_coordinates_ch_plz(plz: int) -> Tuple[float, float]:
     """
     Returns latitude and longitude for a Swiss postal code.
 
@@ -141,6 +142,20 @@ def get_coordindates_ch_plz(plz: int) -> Tuple[float, float]:
         raise GeocodingError(f"Failed to get lat/long for plz {plz}")
 
     return coordinates
+
+
+def get_coordindates_ch_plz(plz: int) -> Tuple[float, float]:
+    """
+    Deprecated alias of :func:`get_coordinates_ch_plz` (misspelled name).
+
+    Emits a ``DeprecationWarning``; use :func:`get_coordinates_ch_plz` instead.
+    """
+    warnings.warn(
+        "get_coordindates_ch_plz() is deprecated, use get_coordinates_ch_plz() instead",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_coordinates_ch_plz(plz)
 
 
 def get_distance_between_two_points(coord1, coord2):

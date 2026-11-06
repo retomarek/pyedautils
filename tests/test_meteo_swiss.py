@@ -234,7 +234,7 @@ class TestDownloadDataByPlz(unittest.TestCase):
     @patch('pyedautils.weather.meteo_swiss.download_data')
     @patch('pyedautils.weather.meteo_swiss.find_nearest_station')
     @patch('pyedautils.weather.meteo_swiss.get_altitude_lat_long', return_value=450.0)
-    @patch('pyedautils.weather.meteo_swiss.get_coordindates_ch_plz', return_value=(47.01, 8.30))
+    @patch('pyedautils.weather.meteo_swiss.get_coordinates_ch_plz', return_value=(47.01, 8.30))
     def test_groups_sensors_by_station(self, mock_plz, mock_alt, mock_find, mock_download):
         mock_find.side_effect = lambda lat, lon, alt, sensor: "BAN" if sensor == "globrad" else "LUZ"
         index = pd.date_range("2025-07-01", periods=2, freq="h", tz="UTC", name="datetime")
@@ -249,7 +249,7 @@ class TestDownloadDataByPlz(unittest.TestCase):
     @patch('pyedautils.weather.meteo_swiss.download_data')
     @patch('pyedautils.weather.meteo_swiss.find_nearest_station', return_value="LUZ")
     @patch('pyedautils.weather.meteo_swiss.get_altitude_lat_long')
-    @patch('pyedautils.weather.meteo_swiss.get_coordindates_ch_plz', return_value=(47.01, 8.30))
+    @patch('pyedautils.weather.meteo_swiss.get_coordinates_ch_plz', return_value=(47.01, 8.30))
     def test_explicit_altitude(self, mock_plz, mock_alt, mock_find, mock_download):
         mock_download.return_value = pd.DataFrame({"temp": [1.0]})
         download_data_by_plz(6048, "2025-07-01", "2025-07-01", sensors=["temp"], altitude=1000)
