@@ -22,7 +22,7 @@ A pip-installable library of compact utility functions for analyzing and visuali
 - **Plotting** — Plotly- and D3-based visualizations:
   - daily profiles with confidence bands, median-week and calendar heatmaps
   - energy signature (simple and PES), seasonal plots (overlapping, miniplots, before/after, polar), density by season
-  - comfort: SIA 180, Mollier h,x-diagram, comfort compass, comfort donuts, overheating, temperature/humidity time series
+  - comfort: SIA 180, Mollier h,x-diagram, comfort compass, comfort donuts, overheating, temperature/humidity time series (how to read them: see the [guides](#documentation))
   - statistics: sum frequency, STL decomposition, distribution, boxplot, outliers, correlation, scatter, autocorrelation
   - heating/cooling gradient boxplots, solar-influence dual-axis plot
   - degree days vs. reference, degree-day regression
@@ -59,6 +59,11 @@ fig.show()
 Full API reference, examples with interactive plots, and usage guides:
 
 **[retomarek.github.io/pyedautils](https://retomarek.github.io/pyedautils/)**
+
+New to the h,x diagram or the comfort compass? Two short guides explain how to read them correctly, what the comfort zone means and how to save energy, with worked examples (dew point and mould, ventilating in winter, heating less, humidifying, airing a cellar, summer night cooling) computed with pyedautils:
+
+- [The h,x diagram in five minutes](https://retomarek.github.io/pyedautils/guides/mollier_hx.html): [reading the diagram](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-reading-the-diagram), [comfort](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-comfort), [saving energy](https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-saving-energy)
+- [Reading the comfort compass](https://retomarek.github.io/pyedautils/guides/comfort_compass.html): [reading the compass](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-reading-the-diagram), [comfort](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-comfort), [saving energy](https://retomarek.github.io/pyedautils/guides/comfort_compass.html#compass-saving-energy)
 
 ## Questions and feedback
 
