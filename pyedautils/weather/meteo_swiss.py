@@ -18,7 +18,7 @@ import requests
 
 from pyedautils.geopy import (
     get_altitude_lat_long,
-    get_coordindates_ch_plz,
+    get_coordinates_ch_plz,
     get_distance_between_two_points,
 )
 
@@ -418,7 +418,7 @@ def download_data_by_plz(
     if sensors is None:
         sensors = ["temp", "globrad", "relhum", "rain"]
 
-    lat, lon = get_coordindates_ch_plz(plz)
+    lat, lon = get_coordinates_ch_plz(plz)
     if altitude is None:
         altitude = get_altitude_lat_long(lat, lon)
     logger.info("PLZ %d resolved to lat=%.4f, lon=%.4f, altitude=%.0f m", plz, lat, lon, altitude)

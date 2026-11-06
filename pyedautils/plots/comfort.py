@@ -632,12 +632,6 @@ _FREQ_JS_TEMPLATE = r"""
     return pts;
   }
 
-  function topPointOfContour(c) {
-    let best = null;
-    c.coordinates.forEach(function (poly) { poly.forEach(function (ring) { ring.forEach(function (pt) { if (best === null || pt[1] > best[1]) best = pt; }); }); });
-    return best;
-  }
-
   let freqCache = null;
   function buildFreqContours(useDays) {
     if (freqCache && freqCache.ref === dataXY && freqCache.useDays === useDays) return freqCache.levels;
@@ -753,18 +747,13 @@ _FREQ_JS_TEMPLATE = r"""
           .style("left", (event.pageX + 15) + "px").style("top", (event.pageY - 40) + "px");
       })
       .on("mouseout", function () { freqTip.style("opacity", 0); });
-    let labelG = freqLabels.append("g").attr("font-family", "helvetica").attr("font-size", 13).attr("font-weight", "bold");
-    contours.forEach(function (d) {
-      let pt = topPointOfContour(d.c);
-      if (!pt) return;
-      let s = gridToScreen(pt[0], pt[1]);
-      let g = labelG.append("g").attr("transform", "translate(" + s[0] + "," + s[1] + ")");
-      let txt = g.append("text").attr("text-anchor", "middle").attr("dy", "0.32em").attr("fill", "#111").text(d.label);
-      let bb = txt.node().getBBox();
-      g.insert("rect", "text").attr("x", bb.x - 3).attr("y", bb.y - 1)
-        .attr("width", bb.width + 6).attr("height", bb.height + 2)
-        .attr("rx", 2).attr("fill", "white").attr("opacity", 0.92).attr("stroke", "#ddd").attr("stroke-width", 0.5);
-    });
+    // Value labels on visible (unsaturated) contour points, without overlaps
+    // (hxDrawContourLabels from the bundled drawComfort.js).
+    hxDrawContourLabels(freqLabels, contours, function (gx, gy) {
+      let xv = FREQ_XMIN + gx * FREQ_DX, Tv = FREQ_TMIN + gy * FREQ_DT;
+      if (xv > mollier.get_x_y(Tv, 1, p).x) return null;
+      return gridToScreen(gx, gy);
+    }, { width: width, height: height });
   }
 
   if (freqShow) drawFreqLines();

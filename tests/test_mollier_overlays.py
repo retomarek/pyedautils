@@ -99,6 +99,35 @@ class TestBundleAndD3v7(unittest.TestCase):
             self.assertEqual(MOLLIER_DEFAULT_TEXTS[key], value, key)
 
 
+class TestFrequencyLabels(unittest.TestCase):
+    """The frequency-line labels are placed by the bundled d3-mollierhx
+    helpers, which keep them apart instead of stacking them at the top."""
+
+    def test_helpers_are_bundled(self):
+        src = _js_source("drawComfort.js")
+        self.assertIn("function hxPlaceContourLabels(items, opts)", src)
+        self.assertIn("function hxDrawContourLabels(layer, contours, toScreen, opts)", src)
+        self.assertIn("hxDrawContourLabels(this.freqLabels, contours,", _js_source("mollierChart.js"))
+
+    def test_plot_mollier_hx_uses_collision_free_labels(self):
+        html = plot_mollier_hx(data=_data(), show_frequency=True)
+        self.assertIn("function hxPlaceContourLabels(items, opts)", html)
+        page = _strip_bundle(html)
+        self.assertIn("hxDrawContourLabels(freqLabels, contours, function (gx, gy) {", page)
+        # only points left of the saturation curve, labels inside the axes
+        self.assertIn("if (xv > mollier.get_x_y(Tv, 1, p).x) return null;", page)
+        self.assertIn("{ width: width, height: height });", page)
+        # the old placement (warmest vertex of every line) is gone
+        self.assertNotIn("topPointOfContour", html)
+
+    def test_plot_mollier_hx_fast_uses_collision_free_labels(self):
+        html = plot_mollier_hx_fast(data=_data(), show_frequency=True)
+        self.assertIn("function hxPlaceContourLabels(items, opts)", html)
+        self.assertIn("hxDrawContourLabels(this.freqLabels, contours,", html)
+        self.assertIn('"show": true', html)
+        self.assertNotIn("topPointOfContour", html)
+
+
 class TestOutdoorAndVentilation(unittest.TestCase):
 
     def test_no_outdoor_by_default(self):

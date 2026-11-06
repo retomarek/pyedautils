@@ -14,11 +14,13 @@ print(coords)  # [47.014, 8.305]
 ## Get coordinates from a Swiss postal code
 
 ```python
-from pyedautils.geopy import get_coordindates_ch_plz
+from pyedautils.geopy import get_coordinates_ch_plz
 
-lat, lon = get_coordindates_ch_plz(6048)
+lat, lon = get_coordinates_ch_plz(6048)
 print(f"Horw: {lat:.4f}, {lon:.4f}")  # Horw: 47.0108, 8.3039
 ```
+
+The old, misspelled name `get_coordindates_ch_plz` still works but is deprecated and emits a `DeprecationWarning`.
 
 ## Convert WGS84 to Swiss LV95
 
@@ -46,10 +48,10 @@ print(f"Altitude: {alt_lv95} m")  # ~440 m
 ## Calculate distance between two locations
 
 ```python
-from pyedautils.geopy import get_coordindates_ch_plz, get_distance_between_two_points
+from pyedautils.geopy import get_coordinates_ch_plz, get_distance_between_two_points
 
-horw = get_coordindates_ch_plz(6048)
-interlaken = get_coordindates_ch_plz(3800)
+horw = get_coordinates_ch_plz(6048)
+interlaken = get_coordinates_ch_plz(3800)
 dist = get_distance_between_two_points(horw, interlaken)
 print(f"Distance: {dist} km")  # ~50 km
 ```

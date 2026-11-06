@@ -7,7 +7,7 @@ import requests
 
 from pyedautils.geopy import (
     get_distance_between_two_points,
-    get_coordindates_ch_plz,
+    get_coordinates_ch_plz,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ def download_data_by_plz(
     if sensors is None:
         sensors = ["temp", "globrad", "relhum", "rain"]
 
-    lat, lon = get_coordindates_ch_plz(plz)
+    lat, lon = get_coordinates_ch_plz(plz)
     logger.info("PLZ %d resolved to lat=%.4f, lon=%.4f", plz, lat, lon)
 
     # Group sensors by nearest station to minimize API calls
