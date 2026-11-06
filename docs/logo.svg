@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>pyedautils</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d3350"/>
+      <stop offset="1" stop-color="#0c1520"/>
+    </linearGradient>
+    <clipPath id="plot"><rect x="84" y="76" width="352" height="360"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <g clip-path="url(#plot)">
+    <path d="M84,354.2 H436" stroke="#63c1ff" stroke-opacity="0.35" stroke-width="3"/><path d="M84,272.4 H436" stroke="#63c1ff" stroke-opacity="0.35" stroke-width="3"/><path d="M84,190.5 H436" stroke="#63c1ff" stroke-opacity="0.35" stroke-width="3"/>
+    <circle cx="136.3" cy="168.5" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="295.9" cy="345.9" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="355.3" cy="403.0" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="378.3" cy="421.3" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="318.0" cy="393.6" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="412.9" cy="399.5" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="311.8" cy="420.9" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="398.7" cy="414.6" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="264.0" cy="285.4" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="122.8" cy="161.6" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="254.6" cy="305.6" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="157.8" cy="191.5" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="230.2" cy="313.0" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="279.4" cy="343.7" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="338.3" cy="418.3" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="191.8" cy="277.1" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="152.3" cy="190.8" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="382.8" cy="400.3" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="173.8" cy="139.1" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="215.6" cy="252.3" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="104.7" cy="155.0" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="242.5" cy="268.4" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="196.0" cy="242.5" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/><circle cx="350.8" cy="401.5" r="13" fill="#ffd43b" fill-opacity="0.92" stroke="#0c1520" stroke-width="4"/>
+    <path d="M84.0,106.1 L321.6,406.5 L436.0,406.5" fill="none" stroke="#0c1520" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M84.0,106.1 L321.6,406.5 L436.0,406.5" fill="none" stroke="#63c1ff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <circle cx="321.6" cy="406.5" r="17" fill="#0c1520"/>
+  <circle cx="321.6" cy="406.5" r="10.5" fill="#ffffff"/>
+  <path d="M84,76 V436 H436" fill="none" stroke="#ffffff" stroke-opacity="0.9" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
