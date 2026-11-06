@@ -1354,9 +1354,9 @@ def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt):
     r_prev to r_next over WID has area (WID/2)(r_next^2 - r_prev^2); choosing
     r_next so that the cumulative area equals (share * total area) makes every
     wedge area proportional to its share of days. Returns the barpolar arrays
-    plus the outermost drawn radius (incl. the dashed reference circle)."""
-    th, rr, base, wid, col, hov = [], [], [], [], [], []
-    r_max = max(r_green, _COMPASS_R0)
+    plus the outer radius of each arm (in _COMPASS_DIR_ORDER; ``r_green`` for
+    a direction without days)."""
+    th, rr, base, wid, col, hov, arms = [], [], [], [], [], [], []
     for ang, k in zip(_COMPASS_THETA, _COMPASS_DIR_ORDER):
         cum, r_prev = 0.0, r_green
         for st in _COMPASS_STAGE_ORDER:
@@ -1368,8 +1368,92 @@ def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt):
                 wid.append(_COMPASS_WID_DEG); col.append(_COMPASS_STAGE_COLORS[k][st])
                 hov.append(hov_fmt(f"{leg_names[k]} · {stage_name[st]}", cnt))
             r_prev = r_next
-        r_max = max(r_max, r_prev)
-    return th, rr, base, wid, col, hov, r_max
+        arms.append(r_prev)
+    return th, rr, base, wid, col, hov, arms
+
+
+# Text layout of the compass (sizes in px). The radial range is in glyph units;
+# to know whether a text fits, the figure size is turned into the screen radius
+# of the polar subplot (see _compass_polar_px).
+_COMPASS_FIXED_RANGE = _COMPASS_RMAX * 1.15   # radial range with scale="fixed"
+_COMPASS_LABEL_FONT = 11                      # direction labels
+_COMPASS_CHAR_W = 0.58                        # mean glyph width per font px
+_COMPASS_LABEL_GAP_PX = 5                     # arm end -> label anchor
+_COMPASS_DEFAULT_WIDTH = 700                  # Plotly's default figure width
+# Outward anchor per direction (order of _COMPASS_THETA), so a label never
+# reaches back into its arm or the green disc.
+_COMPASS_LABEL_POS = ["middle right", "top right", "top center", "top left",
+                      "middle left", "bottom left", "bottom center",
+                      "bottom right"]
+
+
+def _compass_plain(text) -> str:
+    """*text* without HTML tags (for width estimates)."""
+    out, depth = [], 0
+    for ch in str(text):
+        if ch == "<":
+            depth += 1
+        elif ch == ">" and depth:
+            depth -= 1
+        elif not depth:
+            out.append(ch)
+    return "".join(out)
+
+
+def _compass_text_box(text, font):
+    """Rough (width, height) in px of a Plotly text with ``<br>`` breaks."""
+    lines = str(text).split("<br>")
+    w = max(len(_compass_plain(ln)) for ln in lines) * _COMPASS_CHAR_W * font
+    return w, len(lines) * font * 1.2
+
+
+def _compass_polar_px(height, width, show_legend, has_title):
+    """Screen radius (px) of the polar subplot, its centre in paper y and the
+    plot-area height (px). Plotly fits the polar circle into the square that
+    fits the domain; with ``width=None`` Plotly's default 700 px is assumed."""
+    plot_w = (width or _COMPASS_DEFAULT_WIDTH) - 40
+    plot_h = height - (66 if has_title else 30) - 20
+    x0, x1 = (0.0, 0.44) if show_legend else (0.06, 0.94)
+    y0, y1 = 0.06, (0.88 if has_title else 0.96)
+    radius = max(min(plot_w * (x1 - x0), plot_h * (y1 - y0)) / 2, 1.0)
+    return radius, (y0 + y1) / 2, max(plot_h, 1.0), (x0 + x1) / 2
+
+
+def _compass_fit_range(arms, labels, radius_px):
+    """Smallest radial range (zoomed to this glyph, scale="fit") that keeps the
+    glyph and each label - anchored outward at the end of its own arm - inside
+    the polar subplot's square. Never wider than the fixed-scale range."""
+    arms = [max(a, _COMPASS_R0) for a in arms]
+    k = radius_px / (max(arms) * 1.04)                   # px per glyph unit
+    for ang, arm, lab in zip(_COMPASS_THETA, arms, labels or []):
+        w, h = _compass_text_box(lab, _COMPASS_LABEL_FONT)
+        c, s = abs(math.cos(math.radians(ang))), abs(math.sin(math.radians(ang)))
+        # label box (anchored outward) + gap must end inside +-radius_px
+        for cs, ext in ((c, w), (s, h)):
+            if cs > 1e-6:
+                room = radius_px - ext - _COMPASS_LABEL_GAP_PX * cs
+                if room <= 0:
+                    return _COMPASS_FIXED_RANGE
+                k = min(k, room / (arm * cs))
+    return min(radius_px / k, _COMPASS_FIXED_RANGE)
+
+
+def _compass_ok_text(pct_text, word, r_px):
+    """Text inside the green disc of screen radius *r_px*: share and the
+    in-range word when both fit, the share alone when only it fits, else None.
+    Returns (text, font size, word_inside)."""
+    f = _COMPASS_LABEL_FONT
+    ok_font = min(f * 2, max(f * 1.3, r_px * 0.42))
+    word_font = max(f * 0.92, ok_font * 0.5)
+    pct_w = len(pct_text) * 0.62 * ok_font
+    block_h = ok_font + word_font * 1.25
+    block_w = max(pct_w, len(_compass_plain(word)) * _COMPASS_CHAR_W * word_font)
+    if r_px > 0 and block_h <= r_px * 1.45 and block_w <= r_px * 1.8:
+        return (f"{pct_text}<br><span style='font-size:{word_font:.1f}px'>"
+                f"{word}</span>", ok_font, True)
+    if r_px > 0 and ok_font * 1.1 <= r_px * 1.5 and pct_w <= r_px * 1.45:
+        return pct_text, ok_font, False
+    return None, ok_font, False
 
 
 def plot_comfort_compass(
@@ -1385,6 +1469,8 @@ def plot_comfort_compass(
     stats_text: Optional[str] = None,
     count_label_singular: Optional[str] = None,
     height: int = 460,
+    scale: Optional[str] = None,
+    width: Optional[int] = None,
 ) -> go.Figure:
     """Area-true "comfort compass" glyph for one room / group.
 
@@ -1392,8 +1478,13 @@ def plot_comfort_compass(
     the nine comfort states (see
     :func:`pyedautils.comfort.comfort_compass_distribution`):
 
-    - **Centre** — a green disc whose *area* is the share of days *in range*
-      (the percentage is printed inside).
+    - **Centre** — a green disc whose *area* is the share of days *in range*.
+      It says what green means: the share and the in-range word
+      (``names["ok"]``, default ``"in range"``), e.g. ``52%`` / ``in range``.
+      When the disc is too small for both lines only the share is printed
+      inside, and when even that does not fit, nothing. Without the legend
+      (``show_legend=False``) a caption below the glyph then gives the share
+      instead, e.g. ``● 8% in range``; with the legend its first row does.
     - **Eight wedges** — one per deviation direction; the *wedge area* is the
       share of days, and the three radial sub-segments (inner → outer) split
       that share by severity. Severity is encoded as lightness on three fixed
@@ -1401,20 +1492,24 @@ def plot_comfort_compass(
       the glyph, severe always the darkest — so the shade alone identifies the
       stage. Orientation matches an h,x diagram: warm top, cold bottom, humid
       right, dry left; mixed directions blend the hues of their two poles.
+    - **Direction labels** — each label sits just beyond the end of its own
+      arm (at least the dashed circle), anchored outward so it never reaches
+      back into the glyph.
     - Every glyph has the **same total area** (= 100 % of days) — only the
-      shape tells the story. With ``fixed_scale`` (the default) the radial
-      axis is framed to the worst-case extent, so the dashed reference circle
-      is drawn at the **same size in every chart** and glyphs stay directly
-      comparable; the labels still ring the glyph's own longest arm. Set
-      ``fixed_scale=False`` to instead zoom to each glyph's actual extent (the
-      pre-*fixed_scale* behaviour), which fills the panel but makes the circle
-      — and thus the scale — differ from chart to chart.
+      shape tells the story. With ``scale="fixed"`` (the default, same as
+      ``fixed_scale=True``) the radial axis is framed to the worst-case
+      extent, so the dashed reference circle is drawn at the **same size in
+      every chart** and glyphs stay directly comparable by area. With
+      ``scale="fit"`` the glyph is zoomed so that it and its labels fill the
+      panel; the circle — and thus the scale — then differs from chart to
+      chart, so compare such charts by their percentages only.
 
     The percentages are listed in a donut-style bullet legend on the right —
     each deviation row shows the count, the total share and its
     mild/moderate/severe split (e.g. ``(19% → 5/4/10%)``) — followed by a grey
     severity key (mild / moderate / severe swatches on the same three
-    lightness planes).
+    lightness planes). Hovering a segment shows only that segment: direction ·
+    stage, its count and share.
 
     Args:
         distribution: Mapping of comfort-compass categories to **counts**, as
@@ -1427,22 +1522,25 @@ def plot_comfort_compass(
             Default *True*.
         show_legend: Draw the bullet legend with the per-direction counts and
             percentages. Default *True*.
-        count_label: Unit word for the legend counts (e.g. ``"days"``).
+        count_label: Unit word for the counts in legend, hover and title
+            subtitle (e.g. ``"days"``, ``"hours"``). Default ``"days"``.
         direction_labels: Optional 8 labels for the rose (order: humid,
             warm+humid, warm, warm+dry, dry, cold+dry, cold, cold+humid). Use
             ``"<br>"`` for line breaks. Default English; pass
             ``pyedautils.plots.comfort._COMPASS_LABELS_DE`` for German.
-        names: Optional mapping overriding the legend / hover direction names
-            (keys ``"ok"`` and ``"f","wf","w","wt","t","ct","c","kf"``). Default
-            English; pass ``_COMPASS_NAMES_DE`` for German.
+        names: Optional mapping overriding the direction names in legend and
+            hover and the in-range word in the green disc / caption (keys
+            ``"ok"`` and ``"f","wf","w","wt","t","ct","c","kf"``; missing keys
+            keep the English default). Pass ``_COMPASS_NAMES_DE`` for German.
         stage_names: Optional mapping overriding the severity-stage names shown
-            in the hover (keys ``"l"`` mild, ``"d"`` moderate, ``"s"`` severe).
-            Default English; pass ``_COMPASS_STAGE_NAMES_DE`` for German.
+            in the hover and the severity key (keys ``"l"`` mild, ``"d"``
+            moderate, ``"s"`` severe). Default English; pass
+            ``_COMPASS_STAGE_NAMES_DE`` for German.
         fixed_scale: Keep the radial axis fixed to the worst-case extent so the
             dashed 100 % reference circle is the same size in every chart,
             keeping glyphs from different rooms/periods directly comparable.
-            Default ``True``. Set ``False`` to zoom to each glyph's own extent
-            (the circle then differs between charts).
+            Default ``True``. ``False`` is the same as ``scale="fit"``.
+            Ignored when ``scale`` is given.
         stats_text: Optional extra text block (e.g. min/mean/max readings)
             rendered left-aligned **below the legend** (``<br>`` for line
             breaks, inline HTML spans allowed). With ``show_legend=False`` it
@@ -1452,14 +1550,36 @@ def plot_comfort_compass(
             ``count_label="Tage", count_label_singular="Tag"`` for German).
             Default *None* (always use ``count_label``).
         height: Figure height in pixels. Default 460.
+        scale: ``"fixed"`` (same 100 % circle in every chart) or ``"fit"``
+            (zoomed to this glyph and its labels). Takes precedence over
+            ``fixed_scale``; default *None* uses ``fixed_scale``.
+        width: Optional figure width in pixels. Default *None* (Plotly's
+            default / container width). Whether the texts fit into the green
+            disc is estimated for this width (700 px when *None*).
 
-    All visible texts are overridable for localisation (``title``,
-    ``count_label``, ``names``, ``direction_labels``, ``stage_names``), mirroring
-    the ``season_labels`` pattern of :func:`plot_mollier_hx`.
+    All visible texts can be set by the caller: ``title``, ``count_label`` /
+    ``count_label_singular``, ``names`` (incl. the in-range word),
+    ``direction_labels``, ``stage_names`` and ``stats_text``; the remaining
+    characters are numbers, ``%`` and symbols. Example for German::
+
+        from pyedautils.plots.comfort import (
+            _COMPASS_LABELS_DE, _COMPASS_NAMES_DE, _COMPASS_STAGE_NAMES_DE)
+        plot_comfort_compass(dist, title="Schlafzimmer",
+                             names=_COMPASS_NAMES_DE,
+                             direction_labels=_COMPASS_LABELS_DE,
+                             stage_names=_COMPASS_STAGE_NAMES_DE,
+                             count_label="Tage", count_label_singular="Tag")
 
     Returns:
         go.Figure
+
+    Raises:
+        ValueError: If ``scale`` is not ``None``, ``"fixed"`` or ``"fit"``.
     """
+    if scale is None:
+        scale = "fixed" if fixed_scale else "fit"
+    if scale not in ("fixed", "fit"):
+        raise ValueError(f"scale must be 'fixed' or 'fit', got {scale!r}")
     d = dict(distribution)
     g = lambda k: float(d.get(k, 0.0))
     leg_names = {**_COMPASS_NAMES, **(names or {})}
@@ -1481,8 +1601,19 @@ def plot_comfort_compass(
         return (f"<b>{name}</b><br>{int(round(cnt))} {_unit(cnt)} "
                 f"({pct:.0f}%)")
 
-    th, rr, base, wid, col, hov, r_max = _compass_wedges(
+    th, rr, base, wid, col, hov, arms = _compass_wedges(
         g, frac, r_green, leg_names, stage_name, _hov)
+    labels = (direction_labels or _COMPASS_LABELS) if show_direction_labels else None
+
+    # Radial-axis range. "fixed" frames to the worst-case extent, so
+    # r=_COMPASS_R0 (the dashed reference circle) maps to the same screen
+    # radius in every chart and glyphs stay comparable. "fit" zooms so that
+    # glyph and labels fill the polar square.
+    radius_px, cy, plot_h, cx = _compass_polar_px(height, width, show_legend,
+                                                  bool(title))
+    r_range = (_COMPASS_FIXED_RANGE if scale == "fixed"
+               else _compass_fit_range(arms, labels, radius_px))
+    px_per_unit = radius_px / r_range
 
     circ = list(range(0, 361, 4))
     fig = go.Figure()
@@ -1504,29 +1635,32 @@ def plot_comfort_compass(
             marker=dict(color=col, line=dict(color="white", width=1.5)),
             hovertext=hov, hovertemplate="%{hovertext}<extra></extra>",
             showlegend=False))
-    # Centre percentage — only when the green disc is large enough to hold it
-    # legibly (below ~15 % it would overflow the disc); the value is in the legend.
-    if ok * 100 >= 15:
+    # Inside the green disc: share + in-range word, or the share alone, as
+    # far as it fits (the legend / caption carries the value otherwise).
+    ok_pct = f"{ok * 100:.0f}%"
+    ok_text, ok_font, word_inside = _compass_ok_text(
+        ok_pct, leg_names["ok"], r_green * px_per_unit)
+    if ok_text:
         fig.add_trace(go.Scatterpolar(
-            r=[0], theta=[0], mode="text", text=[f"{ok * 100:.0f}%"],
-            textfont=dict(color="white", size=14, family=_DONUT_FONT),
+            r=[0], theta=[0], mode="text", text=[ok_text],
+            textposition="middle center",
+            textfont=dict(color="white", size=round(ok_font, 1),
+                          family=_DONUT_FONT),
             hoverinfo="skip", showlegend=False))
-    # Ring the labels just beyond the longest arm (at least the dashed
-    # circle), so they hug the glyph instead of floating at a fixed radius.
-    r_lab = min(r_max + 0.25, _COMPASS_RMAX * 1.07)
-    if show_direction_labels:
-        labels = direction_labels or _COMPASS_LABELS
+    # Each label just beyond the end of its own arm (at least the dashed
+    # circle), anchored outward.
+    gap = _COMPASS_LABEL_GAP_PX / px_per_unit
+    r_lab = [max(a, _COMPASS_R0) + gap for a in arms]
+    if scale == "fixed":
+        r_lab = [min(r, _COMPASS_RMAX * 1.07) for r in r_lab]
+    if labels:
         lab_cols = [_COMPASS_STAGE_COLORS[k]["s"] for k in _COMPASS_DIR_ORDER]
-        # Anchored outward per direction so the text never reaches back into
-        # an arm or the green disc.
-        lab_pos = ["middle right", "top right", "top center", "top left",
-                   "middle left", "bottom left", "bottom center",
-                   "bottom right"]
         fig.add_trace(go.Scatterpolar(
-            r=[r_lab] * 8, theta=_COMPASS_THETA, mode="text",
-            text=labels, textposition=lab_pos,
-            textfont=dict(size=11, color=lab_cols, family=_DONUT_FONT),
-            hoverinfo="skip", showlegend=False))
+            r=r_lab, theta=_COMPASS_THETA, mode="text",
+            text=list(labels), textposition=_COMPASS_LABEL_POS,
+            textfont=dict(size=_COMPASS_LABEL_FONT, color=lab_cols,
+                          family=_DONUT_FONT),
+            cliponaxis=False, hoverinfo="skip", showlegend=False))
 
     annotations = ([_compass_legend(d, leg_names, count_label, stage_name,
                                     count_label_singular)]
@@ -1544,15 +1678,27 @@ def plot_comfort_compass(
                 showarrow=False, xanchor="left", yanchor="middle", align="left",
                 font=dict(size=13, family=_DONUT_FONT, color=_DONUT_MUTED),
             ))
+    if not word_inside and not show_legend and total > 0:
+        # The disc cannot say what green means: caption just below the lowest
+        # drawn part (dashed circle, arm or label).
+        low = [_COMPASS_R0 * px_per_unit]
+        for i, (ang, arm) in enumerate(zip(_COMPASS_THETA, arms)):
+            sin_max = max(-math.sin(math.radians(ang + da)) for da in (-20, 0, 20))
+            low.append(arm * px_per_unit * sin_max)
+            if labels:
+                h = _compass_text_box(labels[i], _COMPASS_LABEL_FONT)[1]
+                pos = _COMPASS_LABEL_POS[i]
+                ext = h if pos.startswith("bottom") else h / 2 if pos.startswith("middle") else 0
+                low.append(-r_lab[i] * px_per_unit * math.sin(math.radians(ang)) + ext)
+        bottom_px = min(max(low), radius_px)
+        annotations.append(dict(
+            text=(f"<span style='color:{_COMPASS_OK}'>●</span> "
+                  f"<b>{ok_pct}</b> {leg_names['ok']}"),
+            x=cx, y=cy - (bottom_px + 6) / plot_h, xref="paper", yref="paper",
+            showarrow=False, xanchor="center", yanchor="top",
+            font=dict(size=12, family=_DONUT_FONT, color="#3A4150"),
+        ))
     polar_x = [0.0, 0.44] if show_legend else [0.06, 0.94]
-    # Radial-axis range. With fixed_scale (default) we frame to the worst-case
-    # extent, so r=_COMPASS_R0 (the dashed reference circle) maps to the same
-    # screen radius in every chart and glyphs stay comparable. Otherwise we
-    # zoom to the labels so the glyph fills its half of the figure — the 1.5
-    # head factor leaves room for the outward-anchored label texts — at the
-    # cost of the reference circle differing from chart to chart.
-    r_range = (_COMPASS_RMAX * 1.15 if fixed_scale
-               else min(r_lab * 1.5, _COMPASS_RMAX * 1.15))
     title_text = None
     if title:
         title_text = f"<b>{title}</b>"
@@ -1577,6 +1723,8 @@ def plot_comfort_compass(
                              "zoomout", "autoscale", "resetscale"]),
         margin=dict(l=20, r=20, t=66 if title else 30, b=20),
     )
+    if width:
+        fig.update_layout(width=width)
     return fig
 
 

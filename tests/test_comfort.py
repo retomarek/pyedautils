@@ -462,18 +462,42 @@ class TestComfortCompass(unittest.TestCase):
         legend = next(a for a in clean.layout.annotations if "●" in a.text)
         self.assertNotIn("severe", legend.text)
 
-    def test_plot_direction_labels_hug_glyph(self):
-        def label_radius(fig):
-            for t in fig.data:
-                if getattr(t, "mode", None) == "text" and len(t.r or []) == 8:
-                    return t.r[0]
-        # 100 % in range -> labels sit just outside the reference circle ...
-        near = label_radius(plot_comfort_compass({"ok": 100}))
-        # ... one dominant arm -> labels move out to the longest arm
-        far = label_radius(plot_comfort_compass({"ok": 5, "w_s": 95}))
-        self.assertLess(near, 1.5)
-        self.assertGreater(far, 2.0)
-        self.assertLess(near, far)
+    def test_plot_direction_labels_at_own_arm(self):
+        def labels(fig):
+            return next(t for t in fig.data
+                        if t.type == "scatterpolar" and t.mode == "text"
+                        and len(t.r or []) == 8)
+        # 100 % in range -> every label just outside the reference circle
+        near = labels(plot_comfort_compass({"ok": 100}))
+        self.assertTrue(all(1.0 < r < 1.5 for r in near.r))
+        # one dominant arm -> only its label moves out, the others stay close
+        far = labels(plot_comfort_compass({"ok": 5, "w_s": 95}))
+        self.assertGreater(far.r[2], 2.0)                    # warm (90 deg)
+        self.assertLess(far.r[0], 1.5)                       # humid
+        self.assertLess(far.r[6], 1.5)                       # cold
+        # anchored outward per direction, not clipped at the polar circle
+        self.assertEqual(far.textposition[0], "middle right")
+        self.assertEqual(far.textposition[2], "top center")
+        self.assertEqual(far.textposition[4], "middle left")
+        self.assertEqual(far.textposition[6], "bottom center")
+        self.assertFalse(far.cliponaxis)
+
+    def test_plot_label_beyond_arm_end(self):
+        from pyedautils.plots.comfort import _compass_wedges
+        d = {"ok": 40, "w_s": 30, "t_l": 20, "kf_d": 10}
+        g = lambda k: float(d.get(k, 0))
+        arms = _compass_wedges(g, lambda k: g(k) / 100, 0.4 ** 0.5,
+                               dict.fromkeys(["ok", "f", "wf", "w", "wt", "t",
+                                              "ct", "c", "kf"], ""),
+                               {"l": "", "d": "", "s": ""},
+                               lambda n, c: "")[-1]
+        for scale in ("fixed", "fit"):
+            fig = plot_comfort_compass(d, scale=scale)
+            lab = next(t for t in fig.data
+                       if t.type == "scatterpolar" and t.mode == "text"
+                       and len(t.r or []) == 8)
+            for r, arm in zip(lab.r, arms):
+                self.assertGreater(r, max(arm, 1.0))
 
     def test_plot_fixed_scale_keeps_circle_size(self):
         def r_range(fig):
@@ -491,16 +515,148 @@ class TestComfortCompass(unittest.TestCase):
                                                fixed_scale=False))
         self.assertLess(small_dyn[1], big_dyn[1])
 
-    def test_plot_centre_pct_threshold(self):
-        def centre_pct(fig):
+    @staticmethod
+    def _centre_text(fig):
+        for t in fig.data:
+            if (t.type == "scatterpolar" and t.mode == "text"
+                    and list(t.r or []) == [0]):
+                return t.text[0]
+        return None
+
+    @staticmethod
+    def _caption(fig):
+        anns = [a for a in fig.layout.annotations
+                if "●" in a.text and a.xanchor == "center"]
+        return anns[0].text if anns else None
+
+    def test_plot_centre_says_in_range(self):
+        # large disc: share and the in-range word inside
+        txt = self._centre_text(plot_comfort_compass({"ok": 52, "f_l": 48}))
+        self.assertTrue(txt.startswith("52%<br>"))
+        self.assertIn("in range", txt)
+        full = self._centre_text(plot_comfort_compass({"ok": 100}))
+        self.assertIn("100%", full)
+        self.assertIn("in range", full)
+        # the word follows names["ok"] (a longer word needs a larger disc)
+        de = self._centre_text(plot_comfort_compass(
+            {"ok": 80, "f_l": 20}, names=_COMPASS_NAMES_DE))
+        self.assertIn("im Zielband", de)
+        self.assertNotIn("in range", de)
+
+    def test_plot_centre_pct_only_when_it_fits(self):
+        # medium disc (fixed scale): only the share fits
+        self.assertEqual(
+            self._centre_text(plot_comfort_compass({"ok": 25, "f_l": 75})),
+            "25%")
+        # tiny disc: nothing inside
+        self.assertIsNone(
+            self._centre_text(plot_comfort_compass({"ok": 5, "f_l": 95})))
+        # zoomed in (fit), the same share has room for the word too
+        fit = self._centre_text(plot_comfort_compass(
+            {"ok": 25, "f_l": 25, "w_l": 25, "c_l": 25}, scale="fit"))
+        self.assertIn("in range", fit)
+        # no disc at all
+        self.assertIsNone(self._centre_text(plot_comfort_compass({"f_l": 5})))
+
+    def test_plot_in_range_caption(self):
+        # disc too small for the word, no legend -> caption below the glyph
+        fig = plot_comfort_compass({"ok": 8, "w_s": 92}, show_legend=False)
+        cap = self._caption(fig)
+        self.assertIn("<b>8%</b> in range", cap)
+        ann = next(a for a in fig.layout.annotations if a.text == cap)
+        self.assertEqual(ann.yanchor, "top")
+        self.assertLess(ann.y, 0.5)
+        # localised via names["ok"]
+        de = plot_comfort_compass({"ok": 8, "w_s": 92}, show_legend=False,
+                                  names={"ok": "im Zielband"})
+        self.assertIn("im Zielband", self._caption(de))
+        # with the legend its first row says it -> no caption
+        self.assertIsNone(self._caption(
+            plot_comfort_compass({"ok": 8, "w_s": 92})))
+        # word inside the disc -> no caption
+        self.assertIsNone(self._caption(
+            plot_comfort_compass({"ok": 60, "w_s": 40}, show_legend=False)))
+        # empty distribution -> no caption
+        self.assertIsNone(self._caption(
+            plot_comfort_compass({}, show_legend=False)))
+
+    def test_plot_scale_fit_and_fixed(self):
+        def r_range(fig):
+            return tuple(fig.layout.polar.radialaxis.range)
+        d_small, d_big = {"ok": 100}, {"ok": 5, "w_s": 95}
+        fixed = r_range(plot_comfort_compass(d_small))
+        # scale="fixed" equals the default and fixed_scale=True
+        self.assertEqual(r_range(plot_comfort_compass(d_big, scale="fixed")),
+                         fixed)
+        # scale="fit" equals fixed_scale=False and zooms to the glyph
+        fit_small = r_range(plot_comfort_compass(d_small, scale="fit"))
+        self.assertEqual(fit_small, r_range(plot_comfort_compass(
+            d_small, fixed_scale=False)))
+        self.assertLess(fit_small[1], fixed[1])
+        fit_big = r_range(plot_comfort_compass(d_big, scale="fit"))
+        self.assertLess(fit_small[1], fit_big[1])
+        self.assertLessEqual(fit_big[1], fixed[1])
+        # scale takes precedence over fixed_scale
+        self.assertEqual(r_range(plot_comfort_compass(
+            d_small, scale="fixed", fixed_scale=False)), fixed)
+        self.assertEqual(r_range(plot_comfort_compass(
+            d_small, scale="fit", fixed_scale=True)), fit_small)
+        # fit without labels zooms in further
+        nolab = r_range(plot_comfort_compass(d_small, scale="fit",
+                                             show_direction_labels=False))
+        self.assertLess(nolab[1], fit_small[1])
+        with self.assertRaises(ValueError):
+            plot_comfort_compass(d_small, scale="zoom")
+
+    def test_plot_width(self):
+        self.assertIsNone(plot_comfort_compass({"ok": 1}).layout.width)
+        self.assertEqual(
+            plot_comfort_compass({"ok": 1}, width=500).layout.width, 500)
+
+    def test_plot_hover_stays_minimal(self):
+        fig = plot_comfort_compass({"ok": 50, "w_l": 30, "w_s": 20})
+        hov = [h for t in fig.data if getattr(t, "hovertext", None)
+               for h in t.hovertext]
+        self.assertIn("<b>too warm · mild</b><br>30 days (30%)", hov)
+        self.assertIn("<b>in range</b><br>50 days (50%)", hov)
+        self.assertEqual(len(hov), 3)
+
+    def test_plot_all_texts_custom(self):
+        from pyedautils.plots.comfort import (_COMPASS_LABELS, _COMPASS_NAMES,
+                                              _COMPASS_STAGE_NAMES)
+        names = {k: f"N{k}X" for k in _COMPASS_NAMES}
+        labels = [f"L{i}<br>Z" for i in range(8)]
+        stages = {k: f"S{k}Y" for k in _COMPASS_STAGE_NAMES}
+        dist = {"ok": 52, "f_l": 1, "wf_d": 2, "w_s": 3, "wt_l": 4, "t_d": 5,
+                "ct_s": 6, "c_l": 7, "kf_d": 20}
+        figs = [plot_comfort_compass(
+            d, title="TITLE", names=names, direction_labels=labels,
+            stage_names=stages, count_label="UNITS",
+            count_label_singular="UNIT", stats_text="STATS",
+            show_legend=leg) for d in (dist, {"ok": 8, "w_s": 91, "c_l": 1})
+            for leg in (True, False)]
+
+        def texts(fig):
+            out = [fig.layout.title.text or ""]
+            out += [a.text for a in fig.layout.annotations]
             for t in fig.data:
-                if getattr(t, "mode", None) == "text" and list(t.r or []) == [0]:
-                    return t.text[0]
-            return None
-        self.assertEqual(centre_pct(plot_comfort_compass({"ok": 40, "f_l": 60})),
-                         "40%")
-        # below 15 % the centre value is dropped (disc too small)
-        self.assertIsNone(centre_pct(plot_comfort_compass({"ok": 5, "f_l": 95})))
+                out += [str(x) for x in (getattr(t, "text", None) or [])]
+                out += [str(x) for x in (getattr(t, "hovertext", None) or [])]
+            return "\n".join(out)
+
+        allt = "\n".join(texts(f) for f in figs)
+        for want in (list(names.values()) + labels + list(stages.values())
+                     + ["TITLE", "UNITS", "UNIT ", "STATS"]):
+            self.assertIn(want, allt)
+        english = (list(_COMPASS_NAMES.values())
+                   + list(_COMPASS_STAGE_NAMES.values())
+                   + [p for lab in _COMPASS_LABELS for p in lab.split("<br>")]
+                   + ["day", "days"])
+        for word in english:
+            self.assertNotIn(word, allt, word)
+        # caption and centre disc use the custom in-range word
+        self.assertIn("<b>8%</b> NokX", allt)
+        self.assertIn("NokX</span>", allt)
 
 
 if __name__ == "__main__":
