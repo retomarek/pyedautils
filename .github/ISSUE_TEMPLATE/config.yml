@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/retomarek/pyedautils/discussions/categories/q-a
+    about: Ask about using a function or reading a plot, or share an idea in Q&A. Issues are for bugs and feature requests.
+  - name: Documentation
+    url: https://retomarek.github.io/pyedautils/
+    about: API reference and examples with interactive plots.

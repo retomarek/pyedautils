@@ -1,0 +1,16 @@
+name: Feature request
+description: Suggest a function, plot, option or improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would you like to analyse or show?
+      description: Describe the task and the data you have, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could pyedautils support it?
+      description: A function signature, a plot sketch, a standard or paper (e.g. SIA, ASHRAE) or an example from another tool.

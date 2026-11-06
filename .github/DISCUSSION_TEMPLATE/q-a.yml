@@ -1,0 +1,19 @@
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question or idea
+      description: Using a function, reading a plot, an idea for a new analysis. For bugs, please open an issue instead.
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code (optional)
+      description: The relevant lines, e.g. the call and a few rows of your DataFrame (df.head()).
+      render: python
+  - type: input
+    id: versions
+    attributes:
+      label: pyedautils and Python version (optional)
+      placeholder: "pyedautils 0.0.9 on Python 3.12"

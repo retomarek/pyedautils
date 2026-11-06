@@ -15,7 +15,12 @@ description = "Python Energy Data Analysis Utilities"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-keywords = ["energy", "data-analysis", "time-series", "building", "comfort", "weather"]
+keywords = [
+    "energy", "energy-efficiency", "data-analysis", "time-series", "building",
+    "building-energy", "building-physics", "hvac", "comfort", "thermal-comfort",
+    "indoor-climate", "psychrometrics", "psychrometric-chart", "mollier-diagram",
+    "degree-days", "energy-signature", "weather", "meteoswiss", "pandas", "plotly",
+]
 dependencies = [
     "ephem>=4.1.2",
     "pandas>=2.1.4",
