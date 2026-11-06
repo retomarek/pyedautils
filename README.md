@@ -85,6 +85,8 @@ Full API reference, examples with interactive plots, and usage guides:
 
 **[retomarek.github.io/pyedautils](https://retomarek.github.io/pyedautils/)**
 
+Learning Python for energy and comfort data? The online book **[EDAP: Energy Data Analysis with Python](https://retomarek.github.io/edap/intro.html)** walks through loading, cleaning and plotting real building data step by step, using pyedautils.
+
 ## Reading the diagram, comfort and saving energy
 
 New to the h,x diagram or the comfort compass? Two short guides explain how to read them correctly, what the comfort zone means and how to save energy, with worked examples (dew point and mould, ventilating in winter, heating less, humidifying, airing a cellar, summer night cooling) computed with pyedautils:
@@ -94,6 +96,7 @@ New to the h,x diagram or the comfort compass? Two short guides explain how to r
 
 ## Related projects
 
+- [EDAP: Energy Data Analysis with Python](https://github.com/retomarek/edap): an interactive online book on analysing and visualising energy and comfort time series with pandas, Plotly and pyedautils ([read the book](https://retomarek.github.io/edap/intro.html)).
 - [d3-mollierhx](https://github.com/hslu-ige-laes/d3-mollierhx): the interactive Mollier h,x diagram for the browser, built on D3.js ([live demo](https://hslu-ige-laes.github.io/d3-mollierhx/)).
 - [Mollier hx Card](https://github.com/retomarek/mollier-hx-card): the h,x diagram as a Home Assistant dashboard card, with outside air and ventilation line.
 - [Comfort Compass Card](https://github.com/retomarek/comfort-compass-card): the comfort compass as a Home Assistant dashboard card: how many days were too warm, too humid, too dry or too cold.

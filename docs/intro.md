@@ -42,4 +42,6 @@ print(season)  # "Summer"
 
 New to the h,x diagram or the comfort compass? The {doc}`guides <guides/index>` explain {ref}`how to read the h,x diagram correctly <hx-reading-the-diagram>`, {ref}`what the comfort zone means <hx-comfort>`, {ref}`how to save energy <hx-saving-energy>` and {ref}`how to read the comfort compass <compass-reading-the-diagram>`.
 
+Learning Python for energy and comfort data? The online book [EDAP: Energy Data Analysis with Python](https://retomarek.github.io/edap/intro.html) walks through loading, cleaning and plotting real building data step by step, using pyedautils.
+
 See the {doc}`installation` page for setup instructions and the API Reference for detailed documentation of each module.
