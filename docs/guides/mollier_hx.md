@@ -54,8 +54,8 @@ Every state of the air is one point:
   water condenses on windows and cold walls, or forms fog. That temperature is
   the **dew point** (see below).
 - The air pressure, which depends on the altitude, shifts the curves a little.
-  Pass `pressure=` (in Pa) or `altitude=` to `plot_mollier_hx`, and `p=` or
-  `altitude=` to `state()`.
+  Pass `altitude=` (or an explicit `pressure=` in Pa, which then wins) to
+  `plot_mollier_hx`, and `p=` or `altitude=` to `state()`.
 
 ### How processes move the point
 
@@ -224,7 +224,7 @@ heated, _ = heat(outside, t_out=21)
 print(f"{outside.x * 1000:.1f} g/kg -> {heated.phi:.0%} at 21 °C")
 # 3.2 g/kg -> 20% at 21 °C
 
-html = plot_mollier_hx(altitude=450, pressure=outside.p,
+html = plot_mollier_hx(altitude=450,   # pressure follows from the altitude
                        states=[outside, heated], labels=["outside", "heated"])
 ```
 

@@ -368,6 +368,22 @@ def _mollier_texts(captions, texts, x_axis_title, comfort_label,
     return caps, _merge_texts(base, texts, "texts")
 
 
+def _resolve_pressure(pressure, altitude):
+    """Air pressure [Pa] for the Mollier plots.
+
+    An explicit ``pressure`` wins (``altitude`` is then only the label).
+    Without it, the pressure follows from ``altitude`` via the ISA formula
+    (:func:`pyedautils.psychrometrics.pressure_from_altitude`), else sea
+    level (101325 Pa).
+    """
+    if pressure is not None:
+        return float(pressure)
+    if altitude is not None:
+        from pyedautils._mollier import pressure_from_altitude
+        return float(pressure_from_altitude(altitude))
+    return 101325.0
+
+
 def _altitude_pressure_labels(pressure, altitude, texts=None):
     """Top-right annotation strings ``(altitude, pressure)`` from the
     ``altitude`` / ``pressure`` templates of ``texts``.
@@ -757,7 +773,7 @@ _FREQ_JS_TEMPLATE = r"""
 
 def plot_mollier_hx(
     data: Optional[pd.DataFrame] = None,
-    pressure: float = 101325.0,
+    pressure: Optional[float] = None,
     altitude: Optional[float] = None,
     domain_x: Tuple[float, float] = (0.0, 0.020),
     domain_y: Tuple[float, float] = (-20.0, 50.0),
@@ -812,11 +828,18 @@ def plot_mollier_hx(
     Args:
         data: Optional DataFrame with columns [timestamp, humidity, temperature].
             humidity in %, temperature in °C.
-        pressure: Air pressure in Pa. Default 101325 (sea level). Shown in
-            the top-right corner of the chart in hPa.
-        altitude: Optional altitude in metres above sea level, shown together
-            with the pressure in the top-right corner. When ``None``, it is
-            derived from ``pressure`` via the inverse ISA barometric formula.
+        pressure: Air pressure in Pa used for all psychrometric relations
+            and shown in the top-right corner in hPa. When ``None``
+            (default), it is derived from ``altitude`` via the ISA
+            barometric formula
+            (:func:`pyedautils.psychrometrics.pressure_from_altitude`), or
+            101325 Pa (sea level) without an altitude. An explicit pressure
+            always wins; ``altitude`` is then only the label.
+        altitude: Optional altitude in metres above sea level. Sets the
+            pressure when ``pressure`` is not given (``altitude=450`` gives
+            960 hPa) and is shown together with the pressure in the
+            top-right corner. When ``None``, the shown altitude is derived
+            from ``pressure`` via the inverse ISA barometric formula.
         domain_x: Range of absolute humidity [kg/kg] for the x-axis.
         domain_y: Range of the y-coordinate (≈ temperature at x=0) for the y-axis.
         comfort_zone: Dict with keys "temperature", "rel_humidity", "abs_humidity",
@@ -979,6 +1002,7 @@ def plot_mollier_hx(
     )
 
     convention = _check_convention(convention)
+    pressure = _resolve_pressure(pressure, altitude)
     js = _load_d3_js()
     caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
                                season_labels)
@@ -2579,7 +2603,7 @@ def _load_d3_chart_js():
 
 def plot_mollier_hx_fast(
     data: Optional[pd.DataFrame] = None,
-    pressure: float = 101325.0,
+    pressure: Optional[float] = None,
     altitude: Optional[float] = None,
     domain_x: Tuple[float, float] = (0.0, 0.020),
     domain_y: Tuple[float, float] = (-20.0, 50.0),
@@ -2625,7 +2649,8 @@ def plot_mollier_hx_fast(
     ``setCurrent``, ``setOutdoor``, ``setTexts`` ...) without re-rendering — the
     basis for fast, interactive dashboards.
 
-    Same inputs as :func:`plot_mollier_hx` (including offset warning bands,
+    Same inputs as :func:`plot_mollier_hx` (including ``altitude`` setting
+    the pressure when ``pressure`` is not given, offset warning bands,
     ``"abs_humidity": None`` for no abs-humidity limit, ``outdoor`` /
     ``current`` with the ventilation line and note, and ``captions`` /
     ``texts``), plus:
@@ -2658,6 +2683,7 @@ def plot_mollier_hx_fast(
 
     from pyedautils._mollier import _check_convention
     convention = _check_convention(convention)
+    pressure = _resolve_pressure(pressure, altitude)
     cid = "mollier_" + uuid.uuid4().hex[:8]
     caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
                                season_labels)

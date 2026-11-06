@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from pyedautils._mollier import P_STD, state
+from pyedautils.psychrometrics import pressure_from_altitude
 from pyedautils.comfort import VENTILATION_THRESHOLD, ventilation_effect
 from pyedautils.plots import (
     MOLLIER_DEFAULT_CAPTIONS,
@@ -351,6 +352,52 @@ class TestVentilationEffect(unittest.TestCase):
     def test_invalid_input(self):
         with self.assertRaises(ValueError):
             ventilation_effect((21,), (0, 80))
+
+
+class TestPressureFromAltitude(unittest.TestCase):
+    """``altitude`` sets the pressure unless ``pressure`` is given."""
+
+    def test_resolve_pressure(self):
+        from pyedautils.plots.comfort import _resolve_pressure
+        self.assertEqual(_resolve_pressure(None, None), P_STD)
+        self.assertAlmostEqual(_resolve_pressure(None, 450), pressure_from_altitude(450))
+        self.assertEqual(_resolve_pressure(90000, 450), 90000.0)
+
+    def test_hx_altitude_only_sets_pressure(self):
+        html = plot_mollier_hx(altitude=450)
+        self.assertAlmostEqual(_let(html, "p"), pressure_from_altitude(450))
+        self.assertEqual(_let(html, "infoLines"), ["450 m a.s.l.", "960 hPa"])
+
+    def test_hx_default_sea_level(self):
+        html = plot_mollier_hx()
+        self.assertEqual(_let(html, "p"), P_STD)
+        self.assertEqual(_let(html, "infoLines"), ["0 m a.s.l.", "1013 hPa"])
+
+    def test_hx_explicit_pressure_wins(self):
+        html = plot_mollier_hx(pressure=P_STD, altitude=1500)
+        self.assertEqual(_let(html, "p"), P_STD)
+        self.assertEqual(_let(html, "infoLines"), ["1500 m a.s.l.", "1013 hPa"])
+
+    def test_hx_altitude_changes_psychrometry(self):
+        df = pd.DataFrame({"timestamp": ["2024-01-01 12:00"],
+                           "humidity": [50.0], "temperature": [21.0]})
+        sea = _let(plot_mollier_hx(data=df), "dataRecords")
+        alps = _let(plot_mollier_hx(data=df, altitude=1500), "dataRecords")
+        same = _let(plot_mollier_hx(data=df, altitude=1500,
+                                    pressure=pressure_from_altitude(1500)), "dataRecords")
+        self.assertNotEqual(sea, alps)   # x(t, phi) depends on the pressure
+        self.assertEqual(alps, same)
+
+    def test_fast_altitude_only_sets_pressure(self):
+        opts = _chart_opts(plot_mollier_hx_fast(altitude=450))
+        self.assertAlmostEqual(opts["pressure"], pressure_from_altitude(450))
+        self.assertEqual(opts["texts"]["altitude"], "450 m a.s.l.")
+
+    def test_fast_default_and_explicit_pressure(self):
+        self.assertEqual(_chart_opts(plot_mollier_hx_fast())["pressure"], P_STD)
+        opts = _chart_opts(plot_mollier_hx_fast(pressure=90000, altitude=450))
+        self.assertEqual(opts["pressure"], 90000.0)
+        self.assertEqual(opts["texts"]["altitude"], "450 m a.s.l.")
 
 
 if __name__ == "__main__":
