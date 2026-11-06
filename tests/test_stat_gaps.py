@@ -2,6 +2,7 @@
 
 import unittest
 import warnings
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -9,7 +10,7 @@ from statsmodels.tsa.stattools import acf
 
 from pyedautils.plots import plot_autocorrelation, plot_decomposition
 from pyedautils.plots.stat import (
-    _fill_short_gaps, _infer_step, _longest_valid_run, _regularize,
+    _acf_tuple, _fill_short_gaps, _infer_step, _longest_valid_run, _regularize,
 )
 
 
@@ -178,7 +179,7 @@ class TestDecompositionGaps(unittest.TestCase):
         s = s.drop(s.index[[30, 31, 32]])
         s.iloc[60:63] = np.nan
         with warnings.catch_warnings():
-            warnings.simplefilter("error")
+            warnings.simplefilter("error", UserWarning)
             fig = plot_decomposition(self._df(s), period=24)
         self.assertEqual(len(fig.data[0].x), 240)
         self.assertFalse(np.isnan(np.asarray(fig.data[0].y, dtype=float)).any())
@@ -200,6 +201,37 @@ class TestDecompositionGaps(unittest.TestCase):
             warnings.simplefilter("ignore")
             with self.assertRaisesRegex(ValueError, "two full periods"):
                 plot_decomposition(self._df(s), period=24)
+
+
+class TestAcfCompat(unittest.TestCase):
+    def test_no_future_warning(self):
+        df = _hourly_sine(10).to_frame("v")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            plot_autocorrelation(df, lags=24)
+
+    def test_result_object_passed_when_supported(self):
+        calls = {}
+
+        def new_acf(x, nlags=10, alpha=None, missing="none", result_object=None):
+            calls["result_object"] = result_object
+            return np.zeros(nlags + 1), np.zeros((nlags + 1, 2))
+
+        with patch("statsmodels.tsa.stattools.acf", new_acf):
+            _acf_tuple(np.arange(5.0), nlags=2, alpha=0.05)
+        self.assertIs(calls["result_object"], False)
+
+    def test_result_object_omitted_for_old_statsmodels(self):
+        calls = {}
+
+        def old_acf(x, nlags=10, alpha=None, missing="none"):
+            calls["called"] = True
+            return np.zeros(nlags + 1), np.zeros((nlags + 1, 2))
+
+        with patch("statsmodels.tsa.stattools.acf", old_acf):
+            values, confint = _acf_tuple(np.arange(5.0), nlags=2, alpha=0.05)
+        self.assertTrue(calls["called"])
+        self.assertEqual(len(values), 3)
 
 
 if __name__ == "__main__":

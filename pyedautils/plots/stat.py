@@ -85,6 +85,23 @@ def _regularize(series: pd.Series, max_gap: int) -> pd.Series:
     return s.iloc[first:last]
 
 
+def _acf_tuple(x, **kwargs):
+    """``statsmodels.tsa.stattools.acf`` returning the classic tuple.
+
+    statsmodels 0.15 warns that ``acf`` will return an ``AcfResult`` object
+    and accepts ``result_object=False`` to keep the tuple; older versions
+    (>= 0.14 is supported) have no such argument, so it is only passed when
+    the installed ``acf`` knows it.
+    """
+    import inspect
+
+    from statsmodels.tsa.stattools import acf
+
+    if "result_object" in inspect.signature(acf).parameters:
+        kwargs["result_object"] = False
+    return acf(x, **kwargs)
+
+
 def _longest_valid_run(series: pd.Series) -> pd.Series:
     """Longest contiguous stretch of ``series`` without NaN."""
     na = series.isna()
@@ -705,16 +722,14 @@ def plot_autocorrelation(
         95% confidence band.
     """
     import numpy as np
-    from statsmodels.tsa.stattools import acf
-
     df = data.copy()
 
     if column is None:
         column = df.columns[0]
 
     series = _regularize(df[column], max_gap)
-    acf_values, confint = acf(series.to_numpy(), nlags=lags, alpha=0.05,
-                              missing="conservative")
+    acf_values, confint = _acf_tuple(series.to_numpy(), nlags=lags, alpha=0.05,
+                                     missing="conservative")
 
     if title is None:
         title = f"Autocorrelation — {column}"
