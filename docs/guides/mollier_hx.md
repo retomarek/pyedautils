@@ -37,7 +37,12 @@ The h,x diagram shows both in one point. Its position gives temperature,
 relative and absolute humidity at the same time, and how far each
 measurement was from the comfort zone.
 
+(hx-reading-the-diagram)=
 ## Reading the diagram
+
+How to read the diagram, and the most common misreadings.
+
+### Axes and curves
 
 Every state of the air is one point:
 
@@ -52,7 +57,9 @@ Every state of the air is one point:
   Pass `pressure=` (in Pa) or `altitude=` to `plot_mollier_hx`, and `p=` or
   `altitude=` to `state()`.
 
-How processes move the point (each has a function in `pyedautils._mollier`):
+### How processes move the point
+
+Each process has a function in `pyedautils._mollier`:
 
 - **Heating or cooling** without adding or removing water moves the point
   straight **up or down** ({func}`~pyedautils._mollier.heat`,
@@ -75,6 +82,35 @@ print(f"x = {s.x * 1000:.1f} g/kg, dew point = {s.t_dp:.1f} °C")
 # x = 9.8 g/kg, dew point = 12.9 °C
 ```
 
+(hx-misreadings)=
+### Common misreadings
+
+- **Relative humidity is not water content.** A high relative humidity does
+  not mean a lot of water. Outside air at 0 °C and 80 % holds 3.2 g/kg, less
+  than room air at 21 °C and 30 % (4.9 g/kg). To compare two airs, compare
+  their *x*, not their φ: the point further **left** is the drier one.
+- **Heating and cooling move the point vertically, not sideways.** In the
+  h,x diagram the temperature is on the vertical axis, so heating or cooling
+  without condensation keeps *x* and moves the point straight up or down,
+  across the φ curves. (In the psychrometric chart, which is rotated and
+  mirrored, the same process is a horizontal line.) Only when cooling reaches
+  the 100 % curve does the point follow that curve to the left, and water
+  condenses.
+- **The curves depend on the air pressure.** Use the pressure of your site
+  (`pressure=` or `altitude=`). The same air at 21 °C and 50 % holds
+  7.7 g/kg at sea level (101 325 Pa), 8.2 g/kg at 450 m (96 035 Pa) and
+  8.7 g/kg at 1000 m (89 875 Pa). Its dew point stays the same (10.2 °C),
+  but a fixed limit in g/kg means a different relative humidity at a
+  different altitude.
+- **Mould starts at cold surfaces, not in the room air.** A room at 21 °C and
+  50 % looks fine on the diagram, but the air right at a 13 °C window frame is
+  above 80 %. Read the risk off at the **surface temperature**, see
+  {ref}`hx-dew-point` below.
+- **Single points are not the whole story.** Short peaks (showering, cooking)
+  show up as single points to the right; what matters for mould is how long
+  the surfaces stay humid, so look at where most of the points are.
+
+(hx-dew-point)=
 ## Dew point: where condensation and mould start
 
 To find the dew point of the room air, go **straight down** from the point to
@@ -110,7 +146,66 @@ give the comfort zone an absolute-humidity limit (`"abs_humidity"` in
 `comfort_zone`, for example `(0, 0.012)` for 12 g/kg) and to watch the points
 near the right-hand edge of the zone.
 
-## Example: ventilating in winter makes the room drier
+(hx-comfort)=
+## Comfort
+
+The **comfort zone** is the area of the diagram where most people feel
+comfortable and where buildings stay healthy. pyedautils draws it from a
+temperature range, a relative-humidity range and, optionally, an upper limit
+of the absolute humidity (`comfort_zone={"temperature": (20, 26),
+"rel_humidity": (0.30, 0.65), "abs_humidity": (0, 0.012)}` in
+`plot_mollier_hx`). Typical limits for living rooms and offices are
+**20–26 °C and 30–65 %** relative humidity, with an absolute limit of about
+**11.5–12 g/kg** (`plot_mollier_hx` uses 11.5 g/kg by default). The exact
+values depend on the standard, the use of the room and the season.
+
+Why both limits matter, and why the zone is not a rectangle:
+
+- **Temperature alone is not enough.** 23 °C feels pleasant at 45 % and sticky
+  at 70 %.
+- **Relative humidity alone is not enough.** At 20 °C, 65 % is 10.0 g/kg; at
+  26 °C the same 65 % is 14.5 g/kg, warm and muggy. The absolute limit of
+  12 g/kg cuts off that corner: at 24 °C it is reached at 61 %, at 26 °C
+  already at 54 %.
+- **Too dry is uncomfortable too.** Below about 30 % eyes, skin and airways
+  dry out; 30 % is 4.6 g/kg at 20 °C and 6.6 g/kg at 26 °C.
+
+**Warning bands** show how far a point is outside the zone. Draw them as
+dashed outlines with `comfort_zone_orange` and `comfort_zone_red`, for example
+the zone widened by ±1 K and ±5 %-points (orange) and by ±2.5 K and
+±10 %-points (red). These are the same steps that
+{func}`~pyedautils.comfort.comfort_compass_distribution` uses for the stages
+mild, moderate and severe, so the diagram and the
+{doc}`comfort compass <comfort_compass>` tell the same story.
+
+The comfort zone is about the room air. For mould, also look at the coldest
+surfaces ({ref}`hx-dew-point`).
+
+(hx-saving-energy)=
+## Saving energy
+
+The diagram also shows where energy goes, and where you can save it without
+losing comfort. The examples below have the numbers.
+
+- **Heat a little less.** As a rule of thumb, every degree less saves around
+  6 % of heating energy, and the relative humidity rises at the same time
+  ({ref}`hx-heating-less`).
+- **Ventilate briefly and intensively in winter.** A few minutes with the
+  windows wide open exchange the humid air without cooling down the walls and
+  furniture; windows tilted for hours waste heat and cool the surfaces next to
+  them ({ref}`hx-winter-ventilation`).
+- **Do not over-humidify.** Every gram of water a humidifier evaporates takes
+  energy, and too much water raises the mould risk at cold surfaces
+  ({ref}`hx-humidifying`).
+- **Air a cellar only when the outside air holds less water** (outside point
+  to the left of the room point); otherwise you bring water in and pay for
+  removing it again ({ref}`hx-cellar`).
+- **Cool with night air in summer** instead of an air conditioner, when the
+  night air is cool and holds no more water (in g/kg) than the room air
+  ({ref}`hx-night-ventilation`).
+
+(hx-winter-ventilation)=
+### Example: ventilating in winter makes the room drier
 
 Cold outside air holds little water. At 0 °C and 80 % it carries about
 3.2 g/kg. Heated to 21 °C in the room, the same air has only about **20 %**
@@ -133,7 +228,8 @@ html = plot_mollier_hx(altitude=450, pressure=outside.p,
                        states=[outside, heated], labels=["outside", "heated"])
 ```
 
-## Example: heating less raises the humidity and saves energy
+(hx-heating-less)=
+### Example: heating less raises the humidity and saves energy
 
 Turn the heating down and the point moves straight down: the water content
 stays the same and the relative humidity rises. Room air with 6.4 g/kg reads
@@ -155,7 +251,29 @@ The limit is on the other side: if the relative humidity at cold surfaces
 (`comfort_zone_orange`, `comfort_zone_red` in `plot_mollier_hx`) helps to
 stay in between.
 
-## Example: airing a cool cellar in summer can make it damp
+(hx-humidifying)=
+### Example: humidifying costs energy and raises the mould risk
+
+Raising a room at 21 °C from 30 % to 50 % adds 3.3 g of water per kg of air
+(4.9 to 8.2 g/kg). Evaporating water takes about 2500 kJ, or **0.7 kWh, per
+kg of water**, whether it comes from a humidifier or a drying rack. At 50 %
+the mould limit at surfaces is 13.6 °C, at 60 % already 16.4 °C, instead of
+10.2 °C at 40 %. In winter, 30–40 % is usually enough. First check whether
+the room is simply overheated, because heating less raises the relative
+humidity for free.
+
+```python
+from pyedautils._mollier import state, humidify_isothermal
+
+room = state(t=21, phi=0.30, altitude=450, m_dot_dry=1.0)
+humid, balance = humidify_isothermal(room, phi_out=0.50)
+print(f"{room.x * 1000:.1f} -> {humid.x * 1000:.1f} g/kg, "
+      f"{balance.dh:.1f} kJ per kg of air")
+# 4.9 -> 8.2 g/kg, 8.4 kJ per kg of air
+```
+
+(hx-cellar)=
+### Example: airing a cool cellar in summer can make it damp
 
 Warm summer air carries a lot of water: at 25 °C and 70 % about 14.7 g/kg.
 Let it into a cellar at 18 °C and it cools below its dew point (about 19 °C),
@@ -175,6 +293,26 @@ print(f"outside {outside.x * 1000:.1f} g/kg (dew point {outside.t_dp:.1f} °C), 
 print("airing dries" if outside.x < cellar.x else "airing adds moisture")
 # outside 14.7 g/kg (dew point 19.1 °C), cellar 8.8 g/kg
 # airing adds moisture
+```
+
+(hx-night-ventilation)=
+### Example: cooling with night air in summer
+
+After a hot day the room is at 26 °C and 50 % (11.1 g/kg). The night air at
+16 °C and 85 % reads very humid, but it holds only 10.2 g/kg, less than the
+room air, and its enthalpy is 42 instead of 55 kJ/kg. Opening the windows at
+night therefore cools the room **and** dries it slightly: warmed to 26 °C, the
+night air would read only 46 %. Close the windows and shade them in the
+morning, before the outside air gets warmer than the room.
+
+```python
+from pyedautils._mollier import state
+
+room = state(t=26, phi=0.50, altitude=450)
+night = state(t=16, phi=0.85, altitude=450)
+print(f"room {room.x * 1000:.1f} g/kg, {room.h:.0f} kJ/kg; "
+      f"night {night.x * 1000:.1f} g/kg, {night.h:.0f} kJ/kg")
+# room 11.1 g/kg, 55 kJ/kg; night 10.2 g/kg, 42 kJ/kg
 ```
 
 See also {doc}`comfort_compass`, which counts how many days were off in which

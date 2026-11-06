@@ -51,12 +51,38 @@ the direction of an arm tells you which combination was off. *Warm + humid*
 calls for cooling or ventilation, *cold + humid* points to condensation and
 mould risk, *warm + dry* to overheated, dry winter air.
 
+(compass-comfort)=
+## Comfort
+
+The **comfort zone** is the range of room climate in which most people feel
+comfortable and the building stays healthy. For the compass it is given as a
+temperature band (`temp_band`), a relative-humidity band (`hum_band`) and,
+optionally, an absolute-humidity band (`hum_abs_band`). Typical limits for
+living rooms and offices are **20–26 °C and 30–65 %**, with an upper limit of
+about **12 g/kg** (`hum_abs_band=(0, 0.012)`). The exact values depend on the
+standard, the use of the room and the season; a cellar or a store room gets
+its own band.
+
 With `hum_abs_band`, a day counts as humid when it is above the relative
 **or** the absolute limit, so a warm day above 12 g/kg counts as *warm +
-humid* even when its relative humidity is still in range. Without
-`hum_abs_band` there is no absolute limit and humidity is judged by relative
-humidity only.
+humid* even when its relative humidity is still in range (at 450 m a.s.l.,
+12 g/kg at 26 °C is only 54 %). Without `hum_abs_band` there is no absolute
+limit and humidity is judged by relative humidity only. The absolute humidity
+depends on the air pressure, so pass `pressure=` for your site, for example
+`pressure_from_altitude(450)` (96 035 Pa).
 
+**Warning bands** grade how far a day was off. The stages come from ± offsets
+around the comfort zone: mild is up to the first limit, moderate up to the
+second, severe beyond, and the worse of temperature and humidity decides. The
+defaults of `comfort_compass_distribution` are 1 / 2.5 K
+(`temp_stage_limits`), 5 / 10 %-points (`hum_stage_limits`) and 1 / 2.5 g/kg
+(`hum_abs_stage_limits`, used only with `hum_abs_band`). Use the same offsets
+for the orange and red warning bands of `plot_mollier_hx`
+(`comfort_zone_orange`, `comfort_zone_red`), so the diagram and the compass
+tell the same story. More on the comfort zone in
+{ref}`the h,x guide <hx-comfort>`.
+
+(compass-reading-the-diagram)=
 ## Reading the compass
 
 The dashed circle has the area of **100 % of the days**. The green disc and
@@ -72,17 +98,27 @@ the arms always add up to exactly that area:
   inside out its segments are mild, moderate and severe, each with an area
   equal to its share of days.
 
-The stages come from ± offsets around the comfort zone. Mild is up to the
-first limit, moderate up to the second, severe beyond; the worse of
-temperature and humidity decides. The defaults of
-`comfort_compass_distribution` are 1 / 2.5 K (`temp_stage_limits`),
-5 / 10 %-points (`hum_stage_limits`) and 1 / 2.5 g/kg
-(`hum_abs_stage_limits`, used only with `hum_abs_band`). Use the same
-offsets for the orange and red warning bands of `plot_mollier_hx`, so the
-diagram and the compass tell the same story.
-
 Hover over a segment to see its number of days and its share.
 
+(compass-misreadings)=
+### Common misreadings
+
+- **Compare areas, not arm lengths.** An arm's area is its share of days. A
+  thin, long arm and a short, wide one can stand for the same number of days.
+- **Compare compasses by area only with `fixed_scale=True`** (the default),
+  see {ref}`compass-comparing-rooms`.
+- **The compass counts days, not hours.** By default every day is reduced to
+  its daily mean. A day *in range* can still have had a humid hour after a
+  shower, or a hot afternoon; use {func}`~pyedautils.plots.comfort.plot_mollier_hx`
+  with hourly data to see those.
+- **"Humid" is about the room air, mould is about surfaces.** A room in range
+  at 21 °C and 50 % can still have mould at an outside wall corner below
+  13.6 °C. The compass tells you *how often*; for *where* and *why* see
+  {ref}`hx-misreadings` and {ref}`hx-dew-point`.
+- **The result depends on the zone.** Each compass is only as meaningful as
+  the bands it was computed with; state them next to the chart.
+
+(compass-comparing-rooms)=
 ## Comparing rooms
 
 By default (`fixed_scale=True`) the radial axis is fixed to the largest
@@ -104,25 +140,36 @@ for name, room in rooms.items():
     plot_comfort_compass(dist, title=name, height=460).show()  # fixed_scale=True
 ```
 
-## Good for people and the environment
+(compass-saving-energy)=
+## Saving energy
 
-The h,x diagram explains why the compass looks the way it does, and what you
-can do about it (all numbers at 450 m a.s.l., 96 035 Pa; see
+Good for people and the environment: the h,x diagram explains why the
+compass looks the way it does, and what you can do about it, often while
+saving energy (all numbers at 450 m a.s.l., 96 035 Pa; see
 {doc}`mollier_hx` for how they were computed):
 
 - **Too dry in winter** (left arms) usually comes from ventilating with cold
   outside air: at 0 °C and 80 % it carries only about 3.2 g/kg of water,
-  which is just **20 %** relative humidity once heated to 21 °C.
-- **Heating less** moves days towards *in range*: the water content stays,
-  the relative humidity rises. Air with 6.4 g/kg reads about 35 % at 23 °C,
-  but 39 % at 21 °C. As a rule of thumb, every degree less saves around
-  **6 % of heating energy**, good for comfort, the bill and the climate.
+  which is just **20 %** relative humidity once heated to 21 °C. Ventilate
+  briefly and intensively (a few minutes, windows wide open) instead of
+  keeping windows tilted for hours, and do not over-humidify: evaporating
+  water takes about 0.7 kWh per kg.
+- **Warm + dry** (upper left) points to overheating. **Heating less** moves
+  days towards *in range*: the water content stays, the relative humidity
+  rises. Air with 6.4 g/kg reads about 35 % at 23 °C, but 39 % at 21 °C. As a
+  rule of thumb, every degree less saves around **6 % of heating energy**,
+  good for comfort, the bill and the climate.
 - **Too humid or cold + humid** (right and lower right arms) means a risk of
   condensation and mould at cold surfaces: at 21 °C and 60 % the dew point is
   12.9 °C, and mould can grow on surfaces below about 16 °C, such as outside
   wall corners in winter. Short, wide-open airing helps, as long as the
-  outside air is drier (holds fewer g/kg) than the room air.
+  outside air is drier (holds fewer g/kg) than the room air. In a cool cellar
+  in summer that is often only the case at night or early in the morning.
+- **Too warm or warm + humid in summer** (upper and upper right arms): cool
+  with night air instead of an air conditioner, as long as the night air
+  holds no more water than the room air, and shade the windows during the
+  day.
 
-{doc}`mollier_hx` explains the h,x diagram step by step, with these examples;
-more background on
+The {ref}`saving-energy section of the h,x guide <hx-saving-energy>` has the
+worked examples; more background on
 [Wikipedia](https://en.wikipedia.org/wiki/Psychrometrics#Mollier_diagram).
