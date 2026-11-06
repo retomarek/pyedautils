@@ -457,3 +457,53 @@ def comfort_compass_distribution(
     for cat, cnt in counts.items():
         out[cat] = int(cnt)
     return out
+
+
+def comfort_warning_bands(
+    temp_stage_limits: Tuple[float, float] = (1.0, 2.5),
+    hum_stage_limits: Tuple[float, float] = (5.0, 10.0),
+    hum_abs_stage_limits: Tuple[float, float] = (0.001, 0.0025),
+) -> Dict[str, Dict[str, float]]:
+    """Orange / red warning-band offsets matching the compass severity stages.
+
+    Translates the stage limits of :func:`comfort_compass_distribution` (same
+    parameter names and defaults) into the ``±`` offsets accepted by
+    ``comfort_zone_orange`` / ``comfort_zone_red`` of
+    :func:`pyedautils.plots.comfort.plot_mollier_hx` (and
+    ``plot_mollier_hx_fast``), so the h,x diagram and the comfort compass can
+    share one definition: the orange band encloses the *mild* stage, the red
+    band the *moderate* stage, and everything beyond red is *severe*.
+
+    The relative-humidity limits are given in %-points (as for the compass)
+    and returned as a fraction (0–1, as used by the diagram); the red band is
+    widened where needed so it always encloses the orange one.
+
+    Example::
+
+        lims = dict(temp_stage_limits=(1.0, 2.5), hum_stage_limits=(5, 10))
+        dist = comfort_compass_distribution(df, (20, 26), (30, 65), **lims)
+        bands = comfort_warning_bands(**lims)
+        plot_mollier_hx(df_hx, comfort_zone_orange=bands["orange"],
+                        comfort_zone_red=bands["red"])
+
+    Args:
+        temp_stage_limits: ``(mild, moderate)`` K over the comfort band.
+            Default ``(1.0, 2.5)``.
+        hum_stage_limits: ``(mild, moderate)`` %-points of relative humidity
+            over the band. Default ``(5.0, 10.0)``.
+        hum_abs_stage_limits: ``(mild, moderate)`` kg/kg of absolute humidity
+            over the band. Default ``(0.001, 0.0025)`` (1 and 2.5 g/kg).
+
+    Returns:
+        ``{"orange": {...}, "red": {...}}``, each a dict with the offsets
+        ``"temperature"`` [K], ``"rel_humidity"`` [fraction] and
+        ``"abs_humidity"`` [kg/kg].
+    """
+    t1, t2 = (abs(float(v)) for v in temp_stage_limits)
+    h1, h2 = (abs(float(v)) / 100.0 for v in hum_stage_limits)
+    x1, x2 = (abs(float(v)) for v in hum_abs_stage_limits)
+    return {
+        "orange": {"temperature": t1, "rel_humidity": h1, "abs_humidity": x1},
+        "red": {"temperature": max(t1, t2), "rel_humidity": max(h1, h2),
+                "abs_humidity": max(x1, x2)},
+    }

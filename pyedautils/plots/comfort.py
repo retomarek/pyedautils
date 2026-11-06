@@ -276,26 +276,126 @@ def _altitude_pressure_labels(pressure, altitude):
             json.dumps(f"{pressure / 100.0:.0f} hPa"))
 
 
-def _band_js(zone, default_color):
+#: Upper absolute-humidity bound [kg/kg] meaning "no upper limit" (far beyond
+#: any saturation state on the chart, so the zone follows its T/φ bounds).
+_OPEN_X_MAX = 1.0
+_ZONE_DEFAULTS = {"temperature": (20, 26), "rel_humidity": (0.30, 0.65),
+                  "abs_humidity": (0, 0.0115)}
+# Legacy defaults of a band given with absolute ranges only: abs humidity
+# wide open so the band is bounded by T/φ only.
+_BAND_DEFAULTS = {"temperature": (20, 26), "rel_humidity": (0.30, 0.65),
+                  "abs_humidity": (0, 0.030)}
+_ZONE_KEYS = (("temperature", "t"), ("rel_humidity", "phi"),
+              ("abs_humidity", "x"))
+
+
+def _is_offset(v):
+    """A scalar (not a (min, max) pair, not a bool) is a ± offset."""
+    import numbers
+    return isinstance(v, numbers.Real) and not isinstance(v, bool)
+
+
+def _abs_range(v):
+    """Absolute-humidity (min, max) [kg/kg]; ``None`` (whole range or upper
+    bound) means no upper limit, a ``None`` lower bound means 0."""
+    if v is None:
+        return [0, _OPEN_X_MAX]
+    lo, hi = v
+    return [0 if lo is None else lo, _OPEN_X_MAX if hi is None else hi]
+
+
+def _comfort_ranges(zone):
+    """Absolute ``{"t", "phi", "x"}`` ranges of a comfort-zone dict (``None``
+    → defaults). ``"abs_humidity": None`` → no upper abs-humidity limit; a
+    missing ``"abs_humidity"`` key keeps the default ``(0, 0.0115)``."""
+    zone = zone or {}
+    out = {}
+    for key, short in _ZONE_KEYS:
+        v = zone.get(key, _ZONE_DEFAULTS[key])
+        out[short] = _abs_range(v) if short == "x" else list(v)
+    return out
+
+
+def _resolve_bands(orange, red, cz):
+    """Resolve the orange / red warning bands to absolute ranges.
+
+    Each band is falsy (not drawn), ``True`` (default offsets from
+    :func:`pyedautils.comfort.comfort_warning_bands`) or a dict whose
+    ``"temperature"`` / ``"rel_humidity"`` / ``"abs_humidity"`` values are
+    either a ``(min, max)`` pair (absolute range) or a scalar (``±`` offset
+    around the comfort-zone ranges ``cz`` in K, fraction, kg/kg). A dict with
+    at least one offset fills its missing keys with the default offsets of
+    that colour; a dict without any offset keeps the legacy absolute defaults.
+    ``"abs_humidity": None`` means no upper limit. Where the red band is given
+    as offsets it is widened to enclose the orange band.
+
+    Returns ``(orange, red)``, each ``None`` or a dict with ``"t"``, ``"phi"``,
+    ``"x"`` (absolute ranges), ``"color"`` and ``"label"``.
+    """
+    from pyedautils.comfort import comfort_warning_bands
+    stage_defaults = comfort_warning_bands()
+
+    def one(band, which, color):
+        if not band:
+            return None, set()
+        if band is True:
+            band, offset_mode = {}, True
+        else:
+            offset_mode = any(_is_offset(band.get(k)) for k, _ in _ZONE_KEYS)
+        out, offset_keys = {}, set()
+        for key, short in _ZONE_KEYS:
+            if key in band:
+                v = band[key]
+            elif offset_mode:
+                v = stage_defaults[which][key]
+            else:
+                v = _BAND_DEFAULTS[key]
+            if _is_offset(v):
+                if cz is None:
+                    raise ValueError(
+                        f"comfort_zone_{which}: offsets need a comfort zone "
+                        "(got comfort_zone=False); pass absolute (min, max) "
+                        "ranges instead")
+                d = abs(float(v))
+                # rounded to drop float noise (0.65 + 0.05 -> 0.7, not 0.70..01)
+                lo = round(cz[short][0] - d, 9)
+                hi = round(cz[short][1] + d, 9)
+                if short == "phi":
+                    lo, hi = max(0.0, lo), min(1.0, hi)
+                elif short == "x":
+                    lo = max(0.0, lo)
+                    hi = _OPEN_X_MAX if cz["x"][1] >= _OPEN_X_MAX else hi
+                out[short] = [lo, hi]
+                offset_keys.add(short)
+            elif short == "x":
+                out[short] = _abs_range(v)
+            else:
+                out[short] = list(v)
+        out["color"] = band.get("color", color)
+        out["label"] = band.get("label") or None
+        return out, offset_keys
+
+    o, _ = one(orange, "orange", "#E67E22")
+    r, r_off = one(red, "red", "#C0392B")
+    if o is not None and r is not None:
+        for short in r_off:      # red encloses orange (stages must not overlap)
+            r[short] = [min(r[short][0], o[short][0]),
+                        max(r[short][1], o[short][1])]
+    return o, r
+
+
+def _band_js(band):
     """Build (t, phi, x, has, color, label) JSON snippets for a dashed band.
 
-    ``zone`` is a dict with absolute bounds — ``"temperature"`` (°C) and
-    ``"rel_humidity"`` (0–1) tuples, plus optional ``"abs_humidity"`` (kg/kg;
-    e.g. ``(0, 0.012)`` for a 12 g/kg ceiling), ``"color"`` and ``"label"``.
-    Returns inert ``"false"`` snippets when ``zone`` is falsy.
+    ``band`` is one resolved band of :func:`_resolve_bands` (absolute ranges)
+    or ``None``, which returns inert ``"false"`` snippets.
     """
     import json
-    if not zone:
-        return ("[0,0]", "[0,0]", "[0,0]", "false",
-                json.dumps(default_color), "null")
-    t = json.dumps(list(zone.get("temperature", (20, 26))))
-    phi = json.dumps(list(zone.get("rel_humidity", (0.30, 0.65))))
-    # Wide default abs-humidity range so the band is bounded by T/φ only
-    # (not clipped horizontally) unless the caller sets it explicitly.
-    xx = json.dumps(list(zone.get("abs_humidity", (0, 0.030))))
-    color = json.dumps(zone.get("color", default_color))
-    label = json.dumps(zone["label"]) if zone.get("label") else "null"
-    return (t, phi, xx, "true", color, label)
+    if not band:
+        return ("[0,0]", "[0,0]", "[0,0]", "false", json.dumps(None), "null")
+    return (json.dumps(band["t"]), json.dumps(band["phi"]),
+            json.dumps(band["x"]), "true", json.dumps(band["color"]),
+            json.dumps(band["label"]) if band["label"] else "null")
 
 
 # Inline JS for the cumulative-frequency contour lines ("risk hours/days"), ported
@@ -569,7 +669,12 @@ def plot_mollier_hx(
         domain_y: Range of the y-coordinate (≈ temperature at x=0) for the y-axis.
         comfort_zone: Dict with keys "temperature", "rel_humidity", "abs_humidity",
             each a (min, max) tuple. Defaults: T=[20, 26], phi=[0.30, 0.65],
-            x=[0, 0.0115]. Pass ``False`` to disable the comfort zone.
+            x=[0, 0.0115]. ``"abs_humidity": None`` (or a ``None`` upper
+            bound, e.g. ``(0, None)``) means no abs-humidity limit — the zone
+            is bounded by T and φ only, like ``hum_abs_band=None`` of
+            :func:`pyedautils.comfort.comfort_compass_distribution`; a missing
+            key keeps the default 0.0115 kg/kg cap. Pass ``False`` to disable
+            the comfort zone.
         height: Diagram height in pixels. Default 700.
         convention: Mollier coordinate convention. ``'classical'`` (default)
             normalises enthalpy per kg of dry air (Recknagel/Sprenger style,
@@ -592,17 +697,37 @@ def plot_mollier_hx(
         comfort_label: Legend caption for the comfort-zone polygon. Default
             ``"Comfort zone"``. Override e.g. to ``"Komfortzone"`` for German
             output or to a custom designation like ``"DIN EN 16798 Cat II"``.
-        comfort_zone_orange: Optional second zone drawn as a **dashed orange
-            outline** (no fill). Same structure as ``comfort_zone`` — a dict
-            with absolute bounds ``"temperature"`` (°C) and ``"rel_humidity"``
-            (0–1) tuples, plus optional ``"abs_humidity"`` (kg/kg, defaults to
-            an unclipped wide range so the band follows the T/φ bounds),
-            ``"label"`` (legend caption) and ``"color"`` (CSS colour). Pass the
-            absolute limits, e.g. ``{"temperature": (19, 27),
-            "rel_humidity": (0.25, 0.70)}`` for a ±1 K / ±5 % band (a
-            temperature *difference* is expressed in kelvin, hence "K").
+        comfort_zone_orange: Optional warning band drawn as a **dashed orange
+            outline** (no fill). Off by default (``None``). A dict with keys
+            ``"temperature"``, ``"rel_humidity"``, ``"abs_humidity"``, each
+            either
+
+            * a ``(min, max)`` tuple — **absolute** bounds in °C, 0–1 and
+              kg/kg, e.g. ``{"temperature": (19, 27),
+              "rel_humidity": (0.25, 0.70)}``; or
+            * a scalar — a **± offset** around the ``comfort_zone`` bounds in
+              K, rel.-humidity fraction and kg/kg, e.g.
+              ``{"temperature": 1, "rel_humidity": 0.05,
+              "abs_humidity": 0.001}`` for ±1 K / ±5 %-points / ±1 g/kg.
+
+            Both forms may be mixed per key. A dict without any offset keeps
+            the absolute defaults T=[20, 26], φ=[0.30, 0.65] for missing keys
+            and leaves the abs. humidity unclipped (the band follows its T/φ
+            bounds). A dict with at least one offset fills missing keys with
+            the default offsets of the band (orange: 1 K / 0.05 / 0.001 kg/kg,
+            red: 2.5 K / 0.10 / 0.0025 kg/kg). ``True`` uses all default
+            offsets. ``"abs_humidity": None`` means no upper limit (as does an
+            offset band around a comfort zone without abs-humidity limit).
+            Optional ``"label"`` (legend caption) and ``"color"`` (CSS
+            colour). The default offsets are the severity-stage limits of
+            :func:`pyedautils.comfort.comfort_compass_distribution`; use
+            :func:`pyedautils.comfort.comfort_warning_bands` to derive both
+            bands from the same stage limits as the comfort compass. Offsets
+            need a comfort zone (``ValueError`` with ``comfort_zone=False``).
         comfort_zone_red: Like ``comfort_zone_orange`` but drawn as a **dashed
-            red outline** — e.g. the ±2.5 K / ±10 % band.
+            red outline** — e.g. the ±2.5 K / ±10 % band. Keys given as
+            offsets are widened where needed to enclose the orange band, so
+            the stages never overlap.
         show_temperature: Draw the iso-temperature lines. Default ``True``.
             The temperature y-axis itself is always shown (it is the chart's
             coordinate base) — this only toggles the blue iso-lines.
@@ -729,15 +854,18 @@ def plot_mollier_hx(
         comfort_t, comfort_phi, comfort_x = "[0,0]", "[0,0]", "[0,0]"
         has_comfort_js = "false"
     else:
-        cz = comfort_zone or {}
-        comfort_t = json.dumps(list(cz.get("temperature", (20, 26))))
-        comfort_phi = json.dumps(list(cz.get("rel_humidity", (0.30, 0.65))))
-        comfort_x = json.dumps(list(cz.get("abs_humidity", (0, 0.0115))))
+        cz = _comfort_ranges(comfort_zone)
+        comfort_t = json.dumps(cz["t"])
+        comfort_phi = json.dumps(cz["phi"])
+        comfort_x = json.dumps(cz["x"])
         has_comfort_js = "true"
+    band_o, band_r = _resolve_bands(
+        comfort_zone_orange, comfort_zone_red,
+        None if comfort_zone is False else cz)
     (orange_t, orange_phi, orange_x, has_orange_js,
-     orange_color_js, orange_label_js) = _band_js(comfort_zone_orange, "#E67E22")
+     orange_color_js, orange_label_js) = _band_js(band_o)
     (red_t, red_phi, red_x, has_red_js,
-     red_color_js, red_label_js) = _band_js(comfort_zone_red, "#C0392B")
+     red_color_js, red_label_js) = _band_js(band_r)
 
     # Altitude / pressure annotation (top-right).
     info_alt_js, info_pressure_js = _altitude_pressure_labels(pressure, altitude)
@@ -1929,7 +2057,8 @@ def plot_mollier_hx_fast(
     (``setData``, ``setComfort``, ``setFrequency`` ...) without re-rendering — the
     basis for fast, interactive dashboards.
 
-    Same inputs as :func:`plot_mollier_hx`, plus:
+    Same inputs as :func:`plot_mollier_hx` (including offset warning bands and
+    ``"abs_humidity": None`` for no abs-humidity limit), plus:
 
     Args:
         show_points: Draw the measurement points. ``False`` keeps only the
@@ -1976,22 +2105,15 @@ def plot_mollier_hx_fast(
                 "xg": round(float(s.x) * 1000, 2), "h": round(float(s.h), 1),
             })
 
-    def _zone(z):
-        if not z:
+    def _band(b):
+        if not b:
             return None
-        return {
-            "t": list(z.get("temperature", (20, 26))),
-            "phi": list(z.get("rel_humidity", (0.30, 0.65))),
-            "x": list(z.get("abs_humidity", (0, 0.0115))),
-        }
+        return {"t": b["t"], "phi": b["phi"], "x": b["x"], "color": b["color"]}
 
-    def _band(z, color):
-        if not z:
-            return None
-        b = _zone(z)
-        b["x"] = list(z.get("abs_humidity", (0, 0.030)))
-        b["color"] = z.get("color", color)
-        return b
+    # Offsets of the warning bands refer to the comfort zone (its defaults
+    # when ``comfort_zone`` is None, i.e. the zone itself is not drawn here).
+    cz = None if comfort_zone is False else _comfort_ranges(comfort_zone)
+    band_o, band_r = _resolve_bands(comfort_zone_orange, comfort_zone_red, cz)
 
     opts = {
         "height": int(height), "convention": convention, "pressure": float(pressure),
@@ -2010,9 +2132,10 @@ def plot_mollier_hx_fast(
         calls.append("c.setData(" + json.dumps(records) + ");")
     if chain:
         calls.append("c.setProcessChain(" + json.dumps(chain) + ");")
-    calls.append("c.setComfort(" + json.dumps(_zone(comfort_zone)) + ");")
-    calls.append("c.setBands(" + json.dumps(_band(comfort_zone_orange, '#E67E22'))
-                 + "," + json.dumps(_band(comfort_zone_red, '#C0392B')) + ");")
+    calls.append("c.setComfort(" + json.dumps(
+        _comfort_ranges(comfort_zone) if comfort_zone else None) + ");")
+    calls.append("c.setBands(" + json.dumps(_band(band_o))
+                 + "," + json.dumps(_band(band_r)) + ");")
     calls.append("c.setFrequency(" + json.dumps(freq) + ");")
     if not show_points:
         calls.append("c.setShowPoints(false);")
