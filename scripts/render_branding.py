@@ -44,8 +44,7 @@ def plot_pages():
                               height=560)
 
     dist = comfort_compass_distribution(room.set_index("timestamp"), temp_band=(8, 20), hum_band=(35, 70))
-    compass = plot_comfort_compass(dist, show_legend=False, fixed_scale=False, height=420)
-    compass.update_layout(width=420, margin=dict(l=10, r=10, t=10, b=10))
+    compass = plot_comfort_compass(dist, show_legend=False, scale="fit", width=420, height=420)
 
     pes = pd.read_csv(DATA / "bldg_engy_sig_pes.csv")
     signature = plot_energy_signature_pes(pes, title="Proposed Energy Signature")
