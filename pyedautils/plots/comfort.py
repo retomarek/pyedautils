@@ -39,6 +39,11 @@ def plot_comfort_sia180(
 
     Returns:
         go.Figure
+
+    See Also:
+        Why temperature and humidity belong together, and how to save
+        energy without losing comfort:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-comfort
     """
     from pyedautils.data_prep.season import get_season
 
@@ -162,6 +167,11 @@ def plot_comfort_temp_humidity(
 
     Returns:
         go.Figure
+
+    See Also:
+        The same data as an h,x diagram (:func:`plot_mollier_hx`), and how
+        to read comfort zone, mould risk and energy saving from it:
+        https://retomarek.github.io/pyedautils/guides/mollier_hx.html#hx-reading-the-diagram
     """
     from pyedautils.data_prep.season import get_season
 
