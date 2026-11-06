@@ -712,5 +712,23 @@ class TestComfortCompass(unittest.TestCase):
         self.assertIn("\nNokX\n", allt)                  # disc word trace
 
 
+class TestCompassLayoutHelpers(unittest.TestCase):
+    """Edge cases of the compass label layout helpers."""
+
+    def test_plain_strips_html_tags(self):
+        from pyedautils.plots.comfort import _compass_plain
+        self.assertEqual(_compass_plain("warm +<br>humid"), "warm +humid")
+        self.assertEqual(_compass_plain("<b>8%</b> in range"), "8% in range")
+        self.assertEqual(_compass_plain("a > b"), "a > b")   # stray '>' is text
+
+    def test_fit_range_falls_back_to_fixed_range(self):
+        from pyedautils.plots.comfort import (_COMPASS_FIXED_RANGE,
+                                              _compass_fit_range)
+        # labels too long for the panel even at the fixed scale
+        labels = ["x" * 60] * 8
+        self.assertEqual(_compass_fit_range([0.5] * 8, labels, 30),
+                         _COMPASS_FIXED_RANGE)
+
+
 if __name__ == "__main__":
     unittest.main()
