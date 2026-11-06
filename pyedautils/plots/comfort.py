@@ -841,7 +841,7 @@ def plot_mollier_hx(
             row's season colour (so the highlight is visible only by
             size/order, not by colour; black for ``current``).
         states: Optional sequence of ``MoistAirState`` objects (from
-            :func:`pyedautils._mollier.state`). When supplied, each state is
+            :func:`pyedautils.psychrometrics.state`). When supplied, each state is
             drawn as a numbered point and consecutive states are connected by
             arrows — a psychrometric process chain in the spirit of
             psychrosim.com. Works alongside ``data`` (historical scatter is
