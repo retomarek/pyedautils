@@ -1377,8 +1377,11 @@ def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt):
 # of the polar subplot (see _compass_polar_px).
 _COMPASS_FIXED_RANGE = _COMPASS_RMAX * 1.15   # radial range with scale="fixed"
 _COMPASS_LABEL_FONT = 11                      # direction labels
-_COMPASS_CHAR_W = 0.58                        # mean glyph width per font px
-_COMPASS_LABEL_GAP_PX = 5                     # arm end -> label anchor
+_COMPASS_CHAR_W = 0.52                        # mean glyph width per font px
+_COMPASS_LINE_H = 1.25                        # line height per font px
+_COMPASS_LABEL_GAP_PX = 4                     # arm end -> label anchor
+_COMPASS_LABEL_PAD_PX = 7                     # min. distance label box -> glyph
+_COMPASS_LABEL_WRAP = 14                      # wrap longer label lines at spaces
 _COMPASS_DEFAULT_WIDTH = 700                  # Plotly's default figure width
 # Outward anchor per direction (order of _COMPASS_THETA), so a label never
 # reaches back into its arm or the green disc.
@@ -1400,11 +1403,32 @@ def _compass_plain(text) -> str:
     return "".join(out)
 
 
+def _compass_wrap(text, width=_COMPASS_LABEL_WRAP) -> str:
+    """Break label lines longer than *width* characters at spaces, so long
+    custom labels do not run off the figure. Existing ``<br>`` breaks are
+    kept; lines with HTML tags are left alone."""
+    out = []
+    for line in str(text).split("<br>"):
+        if len(line) <= width or "<" in line or " " not in line:
+            out.append(line)
+            continue
+        cur = ""
+        for word in line.split(" "):
+            cand = f"{cur} {word}" if cur else word
+            if cur and len(cand) > width:
+                out.append(cur)
+                cur = word
+            else:
+                cur = cand
+        out.append(cur)
+    return "<br>".join(out)
+
+
 def _compass_text_box(text, font):
     """Rough (width, height) in px of a Plotly text with ``<br>`` breaks."""
     lines = str(text).split("<br>")
     w = max(len(_compass_plain(ln)) for ln in lines) * _COMPASS_CHAR_W * font
-    return w, len(lines) * font * 1.2
+    return w, len(lines) * font * _COMPASS_LINE_H
 
 
 def _compass_polar_px(height, width, show_legend, has_title):
@@ -1419,41 +1443,134 @@ def _compass_polar_px(height, width, show_legend, has_title):
     return radius, (y0 + y1) / 2, max(plot_h, 1.0), (x0 + x1) / 2
 
 
+def _compass_label_bounds(height, width, show_legend, has_title):
+    """Room for the direction labels in px around the polar centre (x0, y0,
+    x1, y1, y up): the figure edges, the legend column on the right and the
+    title block on top."""
+    fig_w = width or _COMPASS_DEFAULT_WIDTH
+    plot_w = fig_w - 40
+    top = 66 if has_title else 30
+    plot_h = height - top - 20
+    x0, x1 = (0.0, 0.44) if show_legend else (0.06, 0.94)
+    y0, y1 = 0.06, (0.88 if has_title else 0.96)
+    cx = 20 + plot_w * (x0 + x1) / 2              # from the left figure edge
+    cy = 20 + plot_h * (y0 + y1) / 2              # from the bottom figure edge
+    right = (20 + plot_w * 0.53 - 6) if show_legend else fig_w - 2
+    return (2 - cx, 2 - cy, right - cx, height - top + 10 - cy)
+
+
+def _compass_box(ang, dist, w, h, pos):
+    """Box (x0, y0, x1, y1) in px, y up, of a text of size w x h anchored
+    with Plotly textposition *pos* at *dist* px from the centre at *ang*."""
+    ax = dist * math.cos(math.radians(ang))
+    ay = dist * math.sin(math.radians(ang))
+    v, hz = pos.split()
+    y0, y1 = {"top": (ay, ay + h), "bottom": (ay - h, ay)}.get(
+        v, (ay - h / 2, ay + h / 2))
+    x0, x1 = {"right": (ax, ax + w), "left": (ax - w, ax)}.get(
+        hz, (ax - w / 2, ax + w / 2))
+    return x0, y0, x1, y1
+
+
+def _compass_hits_glyph(box, arms_px, r0_px):
+    """True if the box comes closer than the padding to the dashed circle,
+    the green disc or any arm (arms are sectors of _COMPASS_WID_DEG)."""
+    x0, y0, x1, y1 = box
+    pad = _COMPASS_LABEL_PAD_PX
+    nx = max(2, int((x1 - x0) / 3) + 1)
+    ny = max(2, int((y1 - y0) / 3) + 1)
+    pts = ([(x0 + (x1 - x0) * i / (nx - 1), y) for i in range(nx)
+            for y in (y0, y1)]
+           + [(x, y0 + (y1 - y0) * j / (ny - 1)) for j in range(ny)
+              for x in (x0, x1)])
+    half = _COMPASS_WID_DEG / 2
+    for x, y in pts:
+        d = math.hypot(x, y)
+        lim = r0_px
+        if d < max(arms_px) + pad:
+            a = math.degrees(math.atan2(y, x)) % 360
+            for th, arm in zip(_COMPASS_THETA, arms_px):
+                # angular half-width of the padding at this distance
+                da = math.degrees(pad / max(d, 1.0))
+                if abs((a - th + 180) % 360 - 180) <= half + da:
+                    lim = max(lim, arm)
+        if d < lim + pad:
+            return True
+    return False
+
+
+def _compass_place_labels(arms, labels, k, bounds=None):
+    """Place each label at *k* px per glyph unit: start just beyond the end of
+    its own arm (at least the dashed circle) and move out until its text box
+    clears the whole glyph. If *bounds* (x0, y0, x1, y1 in px around the
+    centre, e.g. the figure edges) are given and a box crosses them, the
+    label's font is reduced (down to 7 px) so long labels are not cut off.
+    Returns ``[(anchor distance px, box, font size), ...]``."""
+    arms_px = [max(a, 0.0) * k for a in arms]
+    r0_px = _COMPASS_R0 * k
+    placed = []
+    for ang, arm, lab, pos in zip(_COMPASS_THETA, arms_px, labels,
+                                  _COMPASS_LABEL_POS):
+        font = float(_COMPASS_LABEL_FONT)
+        while True:
+            w, h = _compass_text_box(lab, font)
+            dist = max(arm, r0_px) + _COMPASS_LABEL_GAP_PX
+            box = _compass_box(ang, dist, w, h, pos)
+            for _ in range(400):
+                if not _compass_hits_glyph(box, arms_px, r0_px):
+                    break
+                dist += 1.5
+                box = _compass_box(ang, dist, w, h, pos)
+            inside = bounds is None or (
+                box[0] >= bounds[0] and box[1] >= bounds[1]
+                and box[2] <= bounds[2] and box[3] <= bounds[3])
+            if inside or font <= 7:
+                break
+            font = max(7.0, font - 0.5)
+        placed.append((dist, box, font))
+    return placed
+
+
 def _compass_fit_range(arms, labels, radius_px):
     """Smallest radial range (zoomed to this glyph, scale="fit") that keeps the
-    glyph and each label - anchored outward at the end of its own arm - inside
-    the polar subplot's square. Never wider than the fixed-scale range."""
-    arms = [max(a, _COMPASS_R0) for a in arms]
-    k = radius_px / (max(arms) * 1.04)                   # px per glyph unit
-    for ang, arm, lab in zip(_COMPASS_THETA, arms, labels or []):
-        w, h = _compass_text_box(lab, _COMPASS_LABEL_FONT)
-        c, s = abs(math.cos(math.radians(ang))), abs(math.sin(math.radians(ang)))
-        # label box (anchored outward) + gap must end inside +-radius_px
-        for cs, ext in ((c, w), (s, h)):
-            if cs > 1e-6:
-                room = radius_px - ext - _COMPASS_LABEL_GAP_PX * cs
-                if room <= 0:
-                    return _COMPASS_FIXED_RANGE
-                k = min(k, room / (arm * cs))
-    return min(radius_px / k, _COMPASS_FIXED_RANGE)
+    glyph and its labels (placed by _compass_place_labels) inside the polar
+    subplot's square. Never wider than the fixed-scale range."""
+    k_hi = radius_px / (max(max(arms), _COMPASS_R0) * 1.04)   # px per unit
+    k_lo = radius_px / _COMPASS_FIXED_RANGE
+
+    def fits(k):
+        if not labels:
+            return True
+        return all(max(abs(c) for c in box) <= radius_px
+                   for _, box, _ in _compass_place_labels(arms, labels, k))
+
+    if fits(k_hi):
+        return radius_px / k_hi
+    if not fits(k_lo):
+        return _COMPASS_FIXED_RANGE
+    for _ in range(20):
+        mid = (k_lo + k_hi) / 2
+        k_lo, k_hi = (mid, k_hi) if fits(mid) else (k_lo, mid)
+    return radius_px / k_lo
 
 
 def _compass_ok_text(pct_text, word, r_px):
-    """Text inside the green disc of screen radius *r_px*: share and the
-    in-range word when both fit, the share alone when only it fits, else None.
-    Returns (text, font size, word_inside)."""
+    """How to fill the green disc of screen radius *r_px*. Returns
+    ``(mode, pct_font, word_font, gap)`` with mode ``"both"`` (share above the
+    in-range word, a tight block), ``"pct"`` (share only) or *None*."""
     f = _COMPASS_LABEL_FONT
-    ok_font = min(f * 2, max(f * 1.3, r_px * 0.42))
-    word_font = max(f * 0.92, ok_font * 0.5)
-    pct_w = len(pct_text) * 0.62 * ok_font
-    block_h = ok_font + word_font * 1.25
-    block_w = max(pct_w, len(_compass_plain(word)) * _COMPASS_CHAR_W * word_font)
-    if r_px > 0 and block_h <= r_px * 1.45 and block_w <= r_px * 1.8:
-        return (f"{pct_text}<br><span style='font-size:{word_font:.1f}px'>"
-                f"{word}</span>", ok_font, True)
-    if r_px > 0 and ok_font * 1.1 <= r_px * 1.5 and pct_w <= r_px * 1.45:
-        return pct_text, ok_font, False
-    return None, ok_font, False
+    pct_font = min(30.0, max(f * 1.3, r_px * 0.42))
+    word_font = max(f * 0.9, pct_font * 0.48)
+    gap = pct_font * 0.12
+    pct_w = len(pct_text) * 0.62 * pct_font
+    block_h = pct_font * 0.75 + gap + word_font
+    block_w = max(pct_w, len(_compass_plain(word)) * 0.56 * word_font)
+    # keep a margin to the disc edge: the block's corners must stay inside
+    if r_px > 0 and block_h <= r_px * 1.2 and block_w <= r_px * 1.55:
+        return "both", pct_font, word_font, gap
+    if r_px > 0 and pct_font <= r_px * 1.2 and pct_w <= r_px * 1.4:
+        return "pct", pct_font, word_font, gap
+    return None, pct_font, word_font, gap
 
 
 def plot_comfort_compass(
@@ -1493,8 +1610,10 @@ def plot_comfort_compass(
       stage. Orientation matches an h,x diagram: warm top, cold bottom, humid
       right, dry left; mixed directions blend the hues of their two poles.
     - **Direction labels** — each label sits just beyond the end of its own
-      arm (at least the dashed circle), anchored outward so it never reaches
-      back into the glyph.
+      arm (at least the dashed circle), anchored outward and moved out until
+      its text box clears the whole glyph (disc and neighbouring arms). Label
+      lines longer than 14 characters are wrapped at spaces; a label that
+      would still run off the figure is drawn smaller (down to 7 px).
     - Every glyph has the **same total area** (= 100 % of days) — only the
       shape tells the story. With ``scale="fixed"`` (the default, same as
       ``fixed_scale=True``) the radial axis is framed to the worst-case
@@ -1603,7 +1722,8 @@ def plot_comfort_compass(
 
     th, rr, base, wid, col, hov, arms = _compass_wedges(
         g, frac, r_green, leg_names, stage_name, _hov)
-    labels = (direction_labels or _COMPASS_LABELS) if show_direction_labels else None
+    labels = ([_compass_wrap(t) for t in (direction_labels or _COMPASS_LABELS)]
+              if show_direction_labels else None)
 
     # Radial-axis range. "fixed" frames to the worst-case extent, so
     # r=_COMPASS_R0 (the dashed reference circle) maps to the same screen
@@ -1635,30 +1755,45 @@ def plot_comfort_compass(
             marker=dict(color=col, line=dict(color="white", width=1.5)),
             hovertext=hov, hovertemplate="%{hovertext}<extra></extra>",
             showlegend=False))
-    # Inside the green disc: share + in-range word, or the share alone, as
-    # far as it fits (the legend / caption carries the value otherwise).
+    # Inside the green disc: share above the in-range word as one tight,
+    # centred block, or the share alone, as far as it fits (the legend /
+    # caption carries the value otherwise).
     ok_pct = f"{ok * 100:.0f}%"
-    ok_text, ok_font, word_inside = _compass_ok_text(
+    ok_mode, pct_font, word_font, ok_gap = _compass_ok_text(
         ok_pct, leg_names["ok"], r_green * px_per_unit)
-    if ok_text:
+    ok_font = dict(color="white", family=_DONUT_FONT)
+    if ok_mode == "both":
+        # Distance between the visual centres of the digits (cap height
+        # ~0.72 em) and the word (x-height ~0.5 em plus descender).
+        sep = pct_font * 0.36 + ok_gap + word_font * 0.45
+        for text, size, dy, name in ((ok_pct, pct_font, sep / 2, "ok_pct"),
+                                     (leg_names["ok"], word_font, -sep / 2,
+                                      "ok_word")):
+            fig.add_trace(go.Scatterpolar(
+                r=[abs(dy) / px_per_unit], theta=[90 if dy > 0 else 270],
+                mode="text", text=[text], textposition="middle center",
+                textfont=dict(size=round(size, 1), **ok_font), name=name,
+                cliponaxis=False, hoverinfo="skip", showlegend=False))
+    elif ok_mode == "pct":
         fig.add_trace(go.Scatterpolar(
-            r=[0], theta=[0], mode="text", text=[ok_text],
-            textposition="middle center",
-            textfont=dict(color="white", size=round(ok_font, 1),
-                          family=_DONUT_FONT),
+            r=[0], theta=[0], mode="text", text=[ok_pct],
+            textposition="middle center", name="ok_pct",
+            textfont=dict(size=round(pct_font, 1), **ok_font),
             hoverinfo="skip", showlegend=False))
     # Each label just beyond the end of its own arm (at least the dashed
-    # circle), anchored outward.
-    gap = _COMPASS_LABEL_GAP_PX / px_per_unit
-    r_lab = [max(a, _COMPASS_R0) + gap for a in arms]
-    if scale == "fixed":
-        r_lab = [min(r, _COMPASS_RMAX * 1.07) for r in r_lab]
+    # circle), anchored outward and moved out until its text box clears the
+    # whole glyph.
+    placed = (_compass_place_labels(
+        arms, labels, px_per_unit,
+        _compass_label_bounds(height, width, show_legend, bool(title)))
+        if labels else [])
     if labels:
         lab_cols = [_COMPASS_STAGE_COLORS[k]["s"] for k in _COMPASS_DIR_ORDER]
         fig.add_trace(go.Scatterpolar(
-            r=r_lab, theta=_COMPASS_THETA, mode="text",
+            r=[dist / px_per_unit for dist, _, _ in placed],
+            theta=_COMPASS_THETA, mode="text",
             text=list(labels), textposition=_COMPASS_LABEL_POS,
-            textfont=dict(size=_COMPASS_LABEL_FONT, color=lab_cols,
+            textfont=dict(size=[font for _, _, font in placed], color=lab_cols,
                           family=_DONUT_FONT),
             cliponaxis=False, hoverinfo="skip", showlegend=False))
 
@@ -1678,18 +1813,15 @@ def plot_comfort_compass(
                 showarrow=False, xanchor="left", yanchor="middle", align="left",
                 font=dict(size=13, family=_DONUT_FONT, color=_DONUT_MUTED),
             ))
-    if not word_inside and not show_legend and total > 0:
+    if ok_mode != "both" and not show_legend and total > 0:
         # The disc cannot say what green means: caption just below the lowest
         # drawn part (dashed circle, arm or label).
-        low = [_COMPASS_R0 * px_per_unit]
-        for i, (ang, arm) in enumerate(zip(_COMPASS_THETA, arms)):
-            sin_max = max(-math.sin(math.radians(ang + da)) for da in (-20, 0, 20))
+        low = [_COMPASS_R0 * px_per_unit] + [-box[1] for _, box, _ in placed]
+        for ang, arm in zip(_COMPASS_THETA, arms):
+            sin_max = max(-math.sin(math.radians(ang + da))
+                          for da in (-_COMPASS_WID_DEG / 2, 0,
+                                     _COMPASS_WID_DEG / 2))
             low.append(arm * px_per_unit * sin_max)
-            if labels:
-                h = _compass_text_box(labels[i], _COMPASS_LABEL_FONT)[1]
-                pos = _COMPASS_LABEL_POS[i]
-                ext = h if pos.startswith("bottom") else h / 2 if pos.startswith("middle") else 0
-                low.append(-r_lab[i] * px_per_unit * math.sin(math.radians(ang)) + ext)
         bottom_px = min(max(low), radius_px)
         annotations.append(dict(
             text=(f"<span style='color:{_COMPASS_OK}'>●</span> "

@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 
 from pyedautils import comfort
 from pyedautils.plots.comfort import (
+    _COMPASS_LABELS_DE,
     _COMPASS_NAMES_DE,
     _COMPASS_STAGE_NAMES_DE,
     plot_comfort_compass,
@@ -517,11 +518,13 @@ class TestComfortCompass(unittest.TestCase):
 
     @staticmethod
     def _centre_text(fig):
-        for t in fig.data:
-            if (t.type == "scatterpolar" and t.mode == "text"
-                    and list(t.r or []) == [0]):
-                return t.text[0]
-        return None
+        """'pct<br>word', 'pct' or None, from the disc's text traces."""
+        parts = {t.name: t.text[0] for t in fig.data
+                 if t.name in ("ok_pct", "ok_word")}
+        if not parts:
+            return None
+        return "<br>".join(parts[k] for k in ("ok_pct", "ok_word")
+                           if k in parts)
 
     @staticmethod
     def _caption(fig):
@@ -539,7 +542,7 @@ class TestComfortCompass(unittest.TestCase):
         self.assertIn("in range", full)
         # the word follows names["ok"] (a longer word needs a larger disc)
         de = self._centre_text(plot_comfort_compass(
-            {"ok": 80, "f_l": 20}, names=_COMPASS_NAMES_DE))
+            {"ok": 80, "f_l": 20}, names=_COMPASS_NAMES_DE, scale="fit"))
         self.assertIn("im Zielband", de)
         self.assertNotIn("in range", de)
 
@@ -552,9 +555,12 @@ class TestComfortCompass(unittest.TestCase):
         self.assertIsNone(
             self._centre_text(plot_comfort_compass({"ok": 5, "f_l": 95})))
         # zoomed in (fit), the same share has room for the word too
-        fit = self._centre_text(plot_comfort_compass(
-            {"ok": 25, "f_l": 25, "w_l": 25, "c_l": 25}, scale="fit"))
-        self.assertIn("in range", fit)
+        spread = {"ok": 30, "f_l": 10, "w_l": 10, "c_l": 10, "t_l": 10,
+                  "wf_l": 10, "kf_l": 10, "ct_l": 10}
+        self.assertEqual(self._centre_text(plot_comfort_compass(spread)),
+                         "30%")
+        fit = self._centre_text(plot_comfort_compass(spread, scale="fit"))
+        self.assertEqual(fit, "30%<br>in range")
         # no disc at all
         self.assertIsNone(self._centre_text(plot_comfort_compass({"f_l": 5})))
 
@@ -608,6 +614,53 @@ class TestComfortCompass(unittest.TestCase):
         with self.assertRaises(ValueError):
             plot_comfort_compass(d_small, scale="zoom")
 
+    def test_plot_centre_block_is_tight(self):
+        # share above the word as two traces, word scaled with the share,
+        # both close to the centre (a tight, vertically centred block)
+        fig = plot_comfort_compass({"ok": 100}, scale="fit", show_legend=False)
+        pct = next(t for t in fig.data if t.name == "ok_pct")
+        word = next(t for t in fig.data if t.name == "ok_word")
+        self.assertEqual((pct.theta[0], word.theta[0]), (90, 270))
+        self.assertAlmostEqual(pct.r[0], word.r[0])         # centred
+        p_size, w_size = pct.textfont.size, word.textfont.size
+        self.assertGreaterEqual(w_size, 0.45 * p_size)
+        self.assertLessEqual(w_size, 0.55 * p_size)
+        r_range = fig.layout.polar.radialaxis.range[1]
+        from pyedautils.plots.comfort import _compass_polar_px
+        px = _compass_polar_px(460, None, False, False)[0] / r_range
+        sep_px = 2 * pct.r[0] * px                          # centre to centre
+        self.assertLess(sep_px, 0.36 * p_size + 0.25 * p_size + 0.5 * w_size)
+
+    def test_plot_labels_clear_glyph(self):
+        from pyedautils.plots.comfort import (_compass_hits_glyph,
+                                              _compass_place_labels,
+                                              _COMPASS_LABELS)
+        # full disc: diagonal labels must not touch it
+        placed = _compass_place_labels([1.0] * 8, _COMPASS_LABELS, 90.0)
+        for dist, box, font in placed:
+            self.assertFalse(_compass_hits_glyph(box, [90.0] * 8, 90.0))
+            self.assertEqual(font, 11)
+        # a long neighbouring arm pushes a diagonal label further out
+        arms = [3.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]     # humid arm long
+        pushed = _compass_place_labels(arms, _COMPASS_LABELS, 40.0)
+        self.assertGreater(pushed[1][0], placed[1][0] / 90.0 * 40.0)
+        self.assertFalse(_compass_hits_glyph(
+            pushed[1][1], [a * 40.0 for a in arms], 40.0))
+
+    def test_plot_long_labels_wrap_and_shrink(self):
+        labels = list(_COMPASS_LABELS_DE)
+        labels[3] = "deutlich zu warm und trocken"
+        labels[4] = "Raumluftfeuchtezuniedrig!"                # no space
+        fig = plot_comfort_compass({"ok": 25, "w_s": 45, "t_l": 30},
+                                   direction_labels=labels)
+        lab = next(t for t in fig.data if t.type == "scatterpolar"
+                   and t.mode == "text" and len(t.r or []) == 8)
+        self.assertIn("<br>", lab.text[3])                   # wrapped
+        self.assertEqual(lab.text[3].replace("<br>", " "), labels[3])
+        self.assertEqual(lab.textfont.size[0], 11)           # normal size
+        self.assertLess(lab.textfont.size[4], 11)            # shrunk to fit
+        self.assertGreaterEqual(lab.textfont.size[4], 7)
+
     def test_plot_width(self):
         self.assertIsNone(plot_comfort_compass({"ok": 1}).layout.width)
         self.assertEqual(
@@ -656,7 +709,7 @@ class TestComfortCompass(unittest.TestCase):
             self.assertNotIn(word, allt, word)
         # caption and centre disc use the custom in-range word
         self.assertIn("<b>8%</b> NokX", allt)
-        self.assertIn("NokX</span>", allt)
+        self.assertIn("\nNokX\n", allt)                  # disc word trace
 
 
 if __name__ == "__main__":
