@@ -1,0 +1,56 @@
+name: Bug report
+description: A function raises an error, returns a wrong result or draws a wrong plot.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. The details below help to reproduce the problem.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what did you get instead? Screenshots help for plots.
+    validations:
+      required: true
+  - type: input
+    id: function
+    attributes:
+      label: Function
+      placeholder: pyedautils.plots.plot_mollier_hx
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal code to reproduce
+      description: As short as possible and self-contained. Use the bundled sample data (importlib.resources.files("pyedautils") / "data") or a few rows of your own (df.head(10).to_dict()).
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback
+      description: The full error message, if there is one.
+      render: text
+  - type: input
+    id: pyedautils-version
+    attributes:
+      label: pyedautils version
+      description: python -c "import pyedautils; print(pyedautils.__version__)" or pip show pyedautils
+      placeholder: 0.0.9
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version and OS
+      placeholder: Python 3.12 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Other relevant package versions (optional)
+      description: pandas, plotly, numpy, ... and where you run it (Jupyter, VS Code, script).
+      render: text
