@@ -57,6 +57,11 @@ Full API reference, examples with interactive plots, and usage guides:
 
 **[retomarek.github.io/pyedautils](https://retomarek.github.io/pyedautils/)**
 
+New to the h,x diagram or the comfort compass? Two short guides explain how to read them, with worked examples (dew point and mould, ventilating in winter, heating less, airing a cellar in summer) computed with pyedautils:
+
+- [The h,x diagram in five minutes](https://retomarek.github.io/pyedautils/guides/mollier_hx.html)
+- [Reading the comfort compass](https://retomarek.github.io/pyedautils/guides/comfort_compass.html)
+
 ## License
 
 **Disclaimer** — The author declines any liability or responsibility in connection with the published code and documentation.

@@ -40,4 +40,6 @@ season = get_season(datetime(2024, 7, 15))
 print(season)  # "Summer"
 ```
 
+New to the h,x diagram or the comfort compass? See the {doc}`guides <guides/index>`: {doc}`guides/mollier_hx` and {doc}`guides/comfort_compass`.
+
 See the {doc}`installation` page for setup instructions and the API Reference for detailed documentation of each module.
