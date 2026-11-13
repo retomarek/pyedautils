@@ -449,6 +449,63 @@ class TestComfortCompass(unittest.TestCase):
         self.assertGreater(luma(_COMPASS_STAGE_GREYS["l"]),
                            luma(_COMPASS_STAGE_GREYS["s"]))
 
+    def test_palettes_resolve_and_stay_readable(self):
+        from pyedautils.plots._compass_palettes import (
+            BG, contrast, lightness, resolve_palette)
+        from pyedautils.plots.comfort import COMPASS_PALETTES
+        self.assertEqual(len(COMPASS_PALETTES), 18)
+        for name in COMPASS_PALETTES:
+            for dark in (False, True):
+                p = resolve_palette(name, dark)
+                bg = BG["dark" if dark else "light"]
+                self.assertEqual(set(p["stages"]),
+                                 {"f", "wf", "w", "wt", "t", "ct", "c", "kf"})
+                for k, st in p["stages"].items():
+                    # three distinct stages, ordered as a ramp either way
+                    ls = [lightness(st[s]) for s in ("l", "d", "s")]
+                    if name != "default":
+                        self.assertTrue(ls[0] > ls[1] > ls[2]
+                                        or ls[0] < ls[1] < ls[2], (name, k))
+                    self.assertGreaterEqual(
+                        round(contrast(p["labels"][k], bg), 2), 4.5,
+                        (name, dark, k))
+                    for s in ("l", "d", "s"):
+                        self.assertIn(p["ink"][k][s], ("#ffffff", "#1f2733"))
+
+    def test_palettes_match_card(self):
+        # Spot checks against comfort-compass-card's src/palettes.js output.
+        from pyedautils.plots._compass_palettes import resolve_palette
+        neon = resolve_palette("neon", True)
+        self.assertEqual(neon["ok"], "#39FF14")
+        self.assertEqual(neon["stages"]["w"]["s"], "#FF3366")  # 'up' ramp
+        default = resolve_palette("default")
+        self.assertEqual(default["stages"]["w"],
+                         {"l": "#e49e93", "d": "#cf6e60", "s": "#b04336"})
+        # default on white: labels are the severe stage, as before
+        self.assertEqual(default["labels"]["w"], "#b04336")
+
+    def test_plot_palette_and_dark(self):
+        from pyedautils.plots._compass_palettes import resolve_palette
+        d = {"ok": 50, "f_l": 30, "w_d": 20}
+        plain = plot_comfort_compass(d)
+        self.assertEqual(plain.layout.paper_bgcolor, "#ffffff")
+        fig = plot_comfort_compass(d, palette="okabe_ito")
+        p = resolve_palette("okabe_ito")
+        wedges = [t for t in fig.data
+                  if t.type == "barpolar" and len(t.r) > 1][0]
+        self.assertIn(p["stages"]["f"]["l"], wedges.marker.color)
+        self.assertIn(p["stages"]["w"]["d"], wedges.marker.color)
+        legend = next(a for a in fig.layout.annotations if "●" in a.text)
+        self.assertIn(p["ok"], legend.text)
+        night = plot_comfort_compass(d, palette="dracula", dark=True)
+        self.assertEqual(night.layout.paper_bgcolor, "#1c1c1c")
+        self.assertEqual(night.layout.polar.bgcolor, "#1c1c1c")
+        disc = [t for t in night.data if t.type == "barpolar"][0]
+        self.assertEqual(disc.marker.color,
+                         resolve_palette("dracula", True)["ok"])
+        with self.assertRaises(ValueError):
+            plot_comfort_compass(d, palette="nope")
+
     def test_plot_severity_key_in_legend(self):
         fig = plot_comfort_compass({"ok": 50, "f_l": 30, "w_d": 20})
         legend = next(a for a in fig.layout.annotations if "●" in a.text)

@@ -16,6 +16,9 @@ from pyedautils.comfort import (
     sia180_max_temp,
     sia180_min_temp,
 )
+from pyedautils.plots._compass_palettes import (  # noqa: F401 (COMPASS_PALETTES is public)
+    BG as _COMPASS_BG, DEFAULT_PALETTE as _COMPASS_DEFAULT_PALETTE,
+    PALETTE_NAMES as COMPASS_PALETTES, resolve_palette as _compass_palette)
 from pyedautils.plots._constants import DEFAULT_SEASON_COLORS
 
 
@@ -1658,7 +1661,7 @@ def plot_comfort_donuts(
 # dry=orange / humid=violet; a mixed direction's hue is the OKLCH hue of the
 # mean of its two pole colours (#E74C3C warm, #3498DB cold, #F39C12 dry,
 # #8E5BD9 humid).
-_COMPASS_OK = "#22C55E"
+_COMPASS_OK = _compass_palette()["ok"]
 # Directions in drawing order, at THETA 0,45,...,315 (0 deg = East, CCW). With
 # the default polar orientation this puts humid right, warm top, dry left,
 # cold bottom — same axes as an h,x (Mollier) diagram.
@@ -1670,18 +1673,13 @@ _COMPASS_THETA = [0, 45, 90, 135, 180, 225, 270, 315]
 # always the darkest colour in the glyph no matter the direction — the shade
 # alone identifies the stage, even across arms and for colour-weak readers.
 # Ramps validated (monotone L, step gaps >= 0.06, light end >= 2:1 on white).
-_COMPASS_STAGE_COLORS = {
-    "w": {"l": "#e49e93", "d": "#cf6e60", "s": "#b04336"},
-    "wf": {"l": "#dc9dbb", "d": "#c66d9a", "s": "#a64278"},
-    "f": {"l": "#baa7e2", "d": "#9a7ccf", "s": "#7954b3"},
-    "kf": {"l": "#9eb0ea", "d": "#7289da", "s": "#4e63bf"},
-    "c": {"l": "#82b9e5", "d": "#3d96d4", "s": "#0072af"},
-    "ct": {"l": "#afb982", "d": "#8b955f", "s": "#69713d"},
-    "t": {"l": "#d6a977", "d": "#bf7f29", "s": "#965d00"},
-    "wt": {"l": "#e0a383", "d": "#cb7545", "s": "#ab4b00"},
-}
+# The default palette; all palettes in plots/_compass_palettes.py.
+_COMPASS_STAGE_COLORS = _compass_palette()["stages"]
 # Neutral greys on the same three lightness planes — the severity key swatches.
-_COMPASS_STAGE_GREYS = {"l": "#b2b2b2", "d": "#8e8e8e", "s": "#6c6c6c"}
+_COMPASS_STAGE_GREYS = _compass_palette()["greys"]
+# Text and reference-circle colours on a white / dark (dark=True) background.
+_COMPASS_TEXT = {False: "#3A4150", True: "#e1e1e1"}
+_COMPASS_REF = {False: "#cccccc", True: "#5a5a5a"}
 _COMPASS_R0 = 1.0
 _COMPASS_AREA = math.pi * _COMPASS_R0 ** 2
 _COMPASS_WID_DEG = 40.0
@@ -1712,14 +1710,16 @@ _COMPASS_STAGE_NAMES_DE = {"l": "leicht", "d": "mittel", "s": "stark"}
 
 
 def _compass_legend(d, names, count_label, stage_names,
-                    count_label_singular=None) -> dict:
+                    count_label_singular=None, pal=None, dark=False) -> dict:
     """Donut-style bullet legend: 'in range' first, then the deviation
     directions present, sorted by count (biggest first). Each row shows the
     count and its share, lower-cased like the donut legend. If any deviation
     is present, a severity key (grey swatches on the three stage lightness
     planes, light -> dark) is appended below the rows. With
     *count_label_singular* a count of exactly 1 uses the singular word
-    (e.g. "1 Tag" instead of "1 Tage")."""
+    (e.g. "1 Tag" instead of "1 Tage"). *pal* is a resolved palette
+    (default palette when *None*)."""
+    pal = pal or _compass_palette()
     total = sum(float(v) for v in d.values())
     g = lambda k: float(d.get(k, 0.0))
 
@@ -1731,13 +1731,13 @@ def _compass_legend(d, names, count_label, stage_names,
             return count_label_singular
         return count_label
 
-    rows = [("ok", g("ok"), _COMPASS_OK, None)]
+    rows = [("ok", g("ok"), pal["ok"], None)]
     deviations = []
     for k in _COMPASS_DIR_ORDER:
         cnt = sum(g(f"{k}_{s}") for s in _COMPASS_STAGE_ORDER)
         if cnt > 0:
             split = "/".join(pct(g(f"{k}_{s}")) for s in _COMPASS_STAGE_ORDER)
-            deviations.append((k, cnt, _COMPASS_STAGE_COLORS[k]["d"], split))
+            deviations.append((k, cnt, pal["stages"][k]["d"], split))
     deviations.sort(key=lambda x: x[1], reverse=True)
     rows += deviations
     lines = []
@@ -1751,7 +1751,7 @@ def _compass_legend(d, names, count_label, stage_names,
     if deviations:
         sep = f" <span style='color:{_DONUT_MUTED}'>/</span> "
         key = sep.join(
-            f"<span style='color:{_COMPASS_STAGE_GREYS[st]}'>●</span> "
+            f"<span style='color:{pal['greys'][st]}'>●</span> "
             f"<span style='color:{_DONUT_MUTED}'>{stage_names[st]}</span>"
             for st in _COMPASS_STAGE_ORDER
         )
@@ -1760,17 +1760,20 @@ def _compass_legend(d, names, count_label, stage_names,
     return dict(
         text="<br>".join(lines), x=0.53, y=0.5, xref="paper", yref="paper",
         showarrow=False, xanchor="left", yanchor="middle", align="left",
-        font=dict(size=13, family=_DONUT_FONT, color="#3A4150"),
+        font=dict(size=13, family=_DONUT_FONT, color=_COMPASS_TEXT[dark]),
     )
 
 
-def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt):
+def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt,
+                    stages=None):
     """Stacked, area-true severity wedges per direction. A ring sector from
     r_prev to r_next over WID has area (WID/2)(r_next^2 - r_prev^2); choosing
     r_next so that the cumulative area equals (share * total area) makes every
     wedge area proportional to its share of days. Returns the barpolar arrays
     plus the outer radius of each arm (in _COMPASS_DIR_ORDER; ``r_green`` for
-    a direction without days)."""
+    a direction without days). *stages* are the palette's stage colours
+    (default palette when *None*)."""
+    stages = stages or _COMPASS_STAGE_COLORS
     th, rr, base, wid, col, hov, arms = [], [], [], [], [], [], []
     for ang, k in zip(_COMPASS_THETA, _COMPASS_DIR_ORDER):
         cum, r_prev = 0.0, r_green
@@ -1780,7 +1783,7 @@ def _compass_wedges(g, frac, r_green, leg_names, stage_name, hov_fmt):
             r_next = math.sqrt(r_green ** 2 + 2 * _COMPASS_AREA * cum / _COMPASS_WID_RAD)
             if r_next > r_prev + 1e-9:
                 th.append(ang); base.append(r_prev); rr.append(r_next - r_prev)
-                wid.append(_COMPASS_WID_DEG); col.append(_COMPASS_STAGE_COLORS[k][st])
+                wid.append(_COMPASS_WID_DEG); col.append(stages[k][st])
                 hov.append(hov_fmt(f"{leg_names[k]} · {stage_name[st]}", cnt))
             r_prev = r_next
         arms.append(r_prev)
@@ -2003,6 +2006,8 @@ def plot_comfort_compass(
     height: int = 460,
     scale: Optional[str] = None,
     width: Optional[int] = None,
+    palette: str = _COMPASS_DEFAULT_PALETTE,
+    dark: bool = False,
 ) -> go.Figure:
     """Area-true "comfort compass" glyph for one room / group.
 
@@ -2090,6 +2095,22 @@ def plot_comfort_compass(
         width: Optional figure width in pixels. Default *None* (Plotly's
             default / container width). Whether the texts fit into the green
             disc is estimated for this width (700 px when *None*).
+        palette: Colour palette, one of ``COMPASS_PALETTES``:
+            ``"default"``, ``"neon"``, ``"okabe_ito"``, ``"tol_muted"``,
+            ``"high_contrast"``, ``"pastel"``, ``"material"``, ``"nord"``,
+            ``"dracula"``, ``"catppuccin"``, ``"solarized"``, ``"gruvbox"``,
+            ``"tokyo_night"``, ``"bauhaus"``, ``"vintage"``, ``"earth"``,
+            ``"sunset"``, ``"minimal"``. The same palettes and colours as the
+            comfort-compass-card for Home Assistant. Each palette gives one
+            base colour per direction; mild / moderate / severe are derived
+            from it (same hue, stepped lightness). ``okabe_ito`` and
+            ``tol_muted`` are colour-blind safe. Default ``"default"``.
+        dark: Draw on a dark background (``#1c1c1c``). Palettes with a dark
+            variant (``neon``, ``high_contrast``, ``dracula``,
+            ``catppuccin``, ``gruvbox``, ``tokyo_night``) use it: mild dim,
+            severe bright. Direction labels are lightened (dark) or darkened
+            (light) until they reach WCAG AA contrast on the background.
+            Default ``False``.
 
     All visible texts can be set by the caller: ``title``, ``count_label`` /
     ``count_label_singular``, ``names`` (incl. the in-range word),
@@ -2108,7 +2129,8 @@ def plot_comfort_compass(
         go.Figure
 
     Raises:
-        ValueError: If ``scale`` is not ``None``, ``"fixed"`` or ``"fit"``.
+        ValueError: If ``scale`` is not ``None``, ``"fixed"`` or ``"fit"``, or
+            ``palette`` is not one of ``COMPASS_PALETTES``.
 
     See Also:
         How to read the compass, compare rooms (``scale``), and what
@@ -2119,6 +2141,10 @@ def plot_comfort_compass(
         scale = "fixed" if fixed_scale else "fit"
     if scale not in ("fixed", "fit"):
         raise ValueError(f"scale must be 'fixed' or 'fit', got {scale!r}")
+    dark = bool(dark)
+    pal = _compass_palette(palette, dark)
+    bg = _COMPASS_BG["dark" if dark else "light"]
+    ink = _COMPASS_TEXT[dark]
     d = dict(distribution)
     g = lambda k: float(d.get(k, 0.0))
     leg_names = {**_COMPASS_NAMES, **(names or {})}
@@ -2141,7 +2167,7 @@ def plot_comfort_compass(
                 f"({pct:.0f}%)")
 
     th, rr, base, wid, col, hov, arms = _compass_wedges(
-        g, frac, r_green, leg_names, stage_name, _hov)
+        g, frac, r_green, leg_names, stage_name, _hov, pal["stages"])
     labels = ([_compass_wrap(t) for t in (direction_labels or _COMPASS_LABELS)]
               if show_direction_labels else None)
 
@@ -2160,19 +2186,19 @@ def plot_comfort_compass(
     # 100 %-reference circle (dashed) = footprint if everything were in range.
     fig.add_trace(go.Scatterpolar(
         r=[_COMPASS_R0] * len(circ), theta=circ, mode="lines",
-        line=dict(color="#cccccc", width=0.8, dash="dot"),
+        line=dict(color=_COMPASS_REF[dark], width=0.8, dash="dot"),
         hoverinfo="skip", showlegend=False))
     # green centre disc (area ~ in range) — a full-circle bar so it is hoverable.
     if r_green > 0:
         fig.add_trace(go.Barpolar(
             r=[r_green], theta=[0], width=[360], base=[0],
-            marker=dict(color=_COMPASS_OK, line=dict(color="white", width=1.5)),
+            marker=dict(color=pal["ok"], line=dict(color=bg, width=1.5)),
             hovertext=[_hov(leg_names["ok"], g("ok"))],
             hovertemplate="%{hovertext}<extra></extra>", showlegend=False))
     if th:
         fig.add_trace(go.Barpolar(
             r=rr, theta=th, base=base, width=wid,
-            marker=dict(color=col, line=dict(color="white", width=1.5)),
+            marker=dict(color=col, line=dict(color=bg, width=1.5)),
             hovertext=hov, hovertemplate="%{hovertext}<extra></extra>",
             showlegend=False))
     # Inside the green disc: share above the in-range word as one tight,
@@ -2181,7 +2207,7 @@ def plot_comfort_compass(
     ok_pct = f"{ok * 100:.0f}%"
     ok_mode, pct_font, word_font, ok_gap = _compass_ok_text(
         ok_pct, leg_names["ok"], r_green * px_per_unit)
-    ok_font = dict(color="white", family=_DONUT_FONT)
+    ok_font = dict(color=pal["ok_ink"], family=_DONUT_FONT)
     if ok_mode == "both":
         # Distance between the visual centres of the digits (cap height
         # ~0.72 em) and the word (x-height ~0.5 em plus descender).
@@ -2208,7 +2234,7 @@ def plot_comfort_compass(
         _compass_label_bounds(height, width, show_legend, bool(title)))
         if labels else [])
     if labels:
-        lab_cols = [_COMPASS_STAGE_COLORS[k]["s"] for k in _COMPASS_DIR_ORDER]
+        lab_cols = [pal["labels"][k] for k in _COMPASS_DIR_ORDER]
         fig.add_trace(go.Scatterpolar(
             r=[dist / px_per_unit for dist, _, _ in placed],
             theta=_COMPASS_THETA, mode="text",
@@ -2218,7 +2244,7 @@ def plot_comfort_compass(
             cliponaxis=False, hoverinfo="skip", showlegend=False))
 
     annotations = ([_compass_legend(d, leg_names, count_label, stage_name,
-                                    count_label_singular)]
+                                    count_label_singular, pal, dark)]
                    if show_legend else [])
     if stats_text:
         if annotations:
@@ -2244,11 +2270,11 @@ def plot_comfort_compass(
             low.append(arm * px_per_unit * sin_max)
         bottom_px = min(max(low), radius_px)
         annotations.append(dict(
-            text=(f"<span style='color:{_COMPASS_OK}'>●</span> "
+            text=(f"<span style='color:{pal['ok']}'>●</span> "
                   f"<b>{ok_pct}</b> {leg_names['ok']}"),
             x=cx, y=cy - (bottom_px + 6) / plot_h, xref="paper", yref="paper",
             showarrow=False, xanchor="center", yanchor="top",
-            font=dict(size=12, family=_DONUT_FONT, color="#3A4150"),
+            font=dict(size=12, family=_DONUT_FONT, color=ink),
         ))
     polar_x = [0.0, 0.44] if show_legend else [0.06, 0.94]
     title_text = None
@@ -2260,11 +2286,13 @@ def plot_comfort_compass(
                            f"{_unit(total)}</span>")
     fig.update_layout(
         title_text=title_text,
-        title_font=dict(size=20, family=_DONUT_FONT), title_x=0.5,
-        template="plotly_white", font=dict(family=_DONUT_FONT), height=height,
+        title_font=dict(size=20, family=_DONUT_FONT, color=ink), title_x=0.5,
+        template="plotly_dark" if dark else "plotly_white",
+        font=dict(family=_DONUT_FONT), height=height,
+        paper_bgcolor=bg, plot_bgcolor=bg,
         polar=dict(
             domain=dict(x=polar_x, y=[0.06, 0.88 if title else 0.96]),
-            bgcolor="white",
+            bgcolor=bg,
             radialaxis=dict(range=[0, r_range], visible=False),
             angularaxis=dict(visible=False, rotation=0, direction="counterclockwise"),
         ),

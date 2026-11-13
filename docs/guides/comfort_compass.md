@@ -140,6 +140,52 @@ for name, room in rooms.items():
     plot_comfort_compass(dist, title=name, height=460).show()  # fixed_scale=True
 ```
 
+(compass-palettes)=
+## Colour palettes
+
+`palette=` changes the colours, `dark=True` draws the compass on a dark
+background (`#1c1c1c`):
+
+```python
+plot_comfort_compass(dist, title="Living room", palette="okabe_ito")
+plot_comfort_compass(dist, title="Living room", palette="dracula", dark=True)
+```
+
+Every palette keeps the meaning of the glyph: warm is reddish at the top,
+cold bluish at the bottom, humid on the right, dry on the left, and the
+centre colour for *in range* stands out. Each direction gets one base colour;
+mild, moderate and severe are derived from it (same hue, stepped lightness in
+OKLCH), so the severity always reads as a ramp. Palettes with a dark variant
+use it with `dark=True`: mild is dim, severe bright. Direction labels are
+lightened or darkened until they reach WCAG AA contrast (4.5:1) on the
+background.
+
+| `palette` | Style | Dark variant |
+| --- | --- | --- |
+| `default` | soft, clear (the original look) | – |
+| `neon` | glowing colours | yes |
+| `okabe_ito` | colour-blind safe (Okabe & Ito) | – |
+| `tol_muted` | colour-blind safe, calm (Paul Tol "muted") | – |
+| `high_contrast` | strong colours for low vision and bright rooms | yes |
+| `pastel` | soft pastels | – |
+| `material` | Material Design / Home Assistant named colours | – |
+| `nord` | Nord | – |
+| `dracula` | Dracula / Alucard | yes |
+| `catppuccin` | Catppuccin Mocha / Latte | yes |
+| `solarized` | Solarized accents | – |
+| `gruvbox` | Gruvbox | yes |
+| `tokyo_night` | Tokyo Night | yes |
+| `bauhaus` | primary red, yellow, blue | – |
+| `vintage` | faded print colours | – |
+| `earth` | forest, clay, sand and lake | – |
+| `sunset` | coral, rose and violet over a cool sea | – |
+| `minimal` | only *in range* in colour, deviations in grey | – |
+
+The palettes and the derived colours are the same as in the
+[comfort-compass-card](https://github.com/retomarek/comfort-compass-card)
+for Home Assistant, whose README shows
+[all palettes on a dark and a light background](https://github.com/retomarek/comfort-compass-card#colour-palettes).
+
 (compass-saving-energy)=
 ## Saving energy
 

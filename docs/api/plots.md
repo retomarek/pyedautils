@@ -64,6 +64,10 @@ the inside out) always add up to exactly that area.
   `stage_names`, `count_label` / `count_label_singular`, `stats_text`. German
   presets: `_COMPASS_NAMES_DE`, `_COMPASS_LABELS_DE`, `_COMPASS_STAGE_NAMES_DE`
   in `pyedautils.plots.comfort`.
+- `palette=` picks one of 18 colour palettes (`COMPASS_PALETTES`, the same as
+  in the comfort-compass-card for Home Assistant); `dark=True` draws on a dark
+  background and uses the palette's dark variant where it has one. See
+  {ref}`compass-palettes`.
 
 ```{eval-rst}
 .. automodule:: pyedautils.plots.comfort
