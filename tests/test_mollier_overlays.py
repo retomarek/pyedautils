@@ -1,5 +1,6 @@
 """Tests for the D3 v7 bundle, outside air / ventilation, edge arrows,
-clipping and the user-definable captions / texts of the h,x diagrams."""
+clipping, the user-definable captions / texts, and the psychrometric
+orientation / IP units of the h,x diagrams."""
 
 import json
 import re
@@ -14,7 +15,9 @@ from pyedautils.psychrometrics import pressure_from_altitude
 from pyedautils.comfort import VENTILATION_THRESHOLD, ventilation_effect
 from pyedautils.plots import (
     MOLLIER_DEFAULT_CAPTIONS,
+    MOLLIER_DEFAULT_CAPTIONS_IP,
     MOLLIER_DEFAULT_TEXTS,
+    MOLLIER_DEFAULT_TEXTS_IP,
     plot_mollier_hx,
     plot_mollier_hx_fast,
 )
@@ -97,6 +100,42 @@ class TestBundleAndD3v7(unittest.TestCase):
                 self.assertEqual(MOLLIER_DEFAULT_CAPTIONS[key], value, key)
         for key, value in {**overlay, **chart}.items():
             self.assertEqual(MOLLIER_DEFAULT_TEXTS[key], value, key)
+
+    def test_python_ip_defaults_match_js_defaults(self):
+        caps = _js_object(_js_source("coordinateGenerator.js"), "HX_DEFAULT_CAPTIONS_IP")
+        overlay = _js_object(_js_source("drawComfort.js"), "HX_DEFAULT_TEXTS_IP")
+        chart = _js_object(_js_source("mollierChart.js"), "MOLLIER_CHART_DEFAULT_TEXTS_IP")
+        self.assertEqual(set(caps), set(MOLLIER_DEFAULT_CAPTIONS_IP))
+        for key, value in caps.items():
+            if key != "x_axis_title":
+                self.assertEqual(MOLLIER_DEFAULT_CAPTIONS_IP[key], value, key)
+        # the IP texts are the SI texts with the JS IP overrides
+        self.assertEqual(set(MOLLIER_DEFAULT_TEXTS_IP), set(MOLLIER_DEFAULT_TEXTS))
+        ip = {**overlay, **chart}
+        self.assertEqual(set(ip), {"state_value", "altitude", "pressure"})
+        for key, value in MOLLIER_DEFAULT_TEXTS_IP.items():
+            self.assertEqual(value, ip.get(key, MOLLIER_DEFAULT_TEXTS[key]), key)
+        # x_axis_title as the MollierChart default humidity-axis title
+        titles = dict(re.findall(r'(si|ip): "([^"]*)"', re.search(
+            r"const MOLLIER_CHART_X_TITLE = \{(.*?)\};",
+            _js_source("mollierChart.js")).group(1)))
+        self.assertEqual(titles["si"], MOLLIER_DEFAULT_CAPTIONS["x_axis_title"])
+        self.assertEqual(titles["ip"], MOLLIER_DEFAULT_CAPTIONS_IP["x_axis_title"])
+
+    def test_psychrometric_x_axis_caption_matches_js(self):
+        from pyedautils.plots.comfort import _default_captions
+        m = re.search(r'c\.x_axis = ip \? "([^"]*)" : "([^"]*)";',
+                      _js_source("coordinateGenerator.js"))
+        self.assertEqual(_default_captions("ip", "psychrometric")["x_axis"], m.group(1))
+        self.assertEqual(_default_captions("si", "psychrometric")["x_axis"], m.group(2))
+
+    def test_hx_units_loaded_after_mollier_functions(self):
+        order = ("mollierFunctions.js", "hxUnits.js", "coordinateGenerator.js",
+                 "drawComfort.js")
+        for html, names in ((plot_mollier_hx(), order),
+                            (plot_mollier_hx_fast(), order + ("mollierChart.js",))):
+            pos = [html.index(_js_source(n)) for n in names]
+            self.assertEqual(pos, sorted(pos))
 
 
 class TestFrequencyLabels(unittest.TestCase):
@@ -381,6 +420,111 @@ class TestVentilationEffect(unittest.TestCase):
     def test_invalid_input(self):
         with self.assertRaises(ValueError):
             ventilation_effect((21,), (0, 80))
+
+
+class TestOrientationAndUnits(unittest.TestCase):
+    """``orientation`` ('mollier' | 'psychrometric') and ``units``
+    ('si' | 'ip') of both h,x plots."""
+
+    @staticmethod
+    def _opts(fn, **kw):
+        html = fn(**kw)
+        if fn is plot_mollier_hx:
+            return _let(html, "hxOpts")
+        return _chart_opts(html)
+
+    def test_defaults(self):
+        for fn in BOTH:
+            opts = self._opts(fn)
+            self.assertEqual((opts["orientation"], opts["units"]), ("mollier", "si"))
+            self.assertEqual(opts["captions"], MOLLIER_DEFAULT_CAPTIONS)
+
+    def test_options_passed_to_js(self):
+        for fn in BOTH:
+            for o in ("mollier", "psychrometric"):
+                for u in ("si", "ip"):
+                    opts = self._opts(fn, orientation=o, units=u)
+                    self.assertEqual((opts["orientation"], opts["units"]), (o, u))
+        # case-insensitive
+        opts = self._opts(plot_mollier_hx, orientation="Psychrometric", units="IP")
+        self.assertEqual((opts["orientation"], opts["units"]), ("psychrometric", "ip"))
+
+    def test_invalid_values_raise(self):
+        for fn in BOTH:
+            for kw in ({"orientation": "ashrae"}, {"orientation": None},
+                       {"units": "imperial"}, {"units": 1}):
+                with self.assertRaisesRegex(ValueError, list(kw)[0]):
+                    fn(**kw)
+
+    def test_hx_draws_through_the_projection(self):
+        page = _strip_bundle(plot_mollier_hx(data=_data(), show_frequency=True,
+                                             orientation="psychrometric"))
+        self.assertIn("hxProjection(width, height, domainX, domainY, hxOpts.orientation)", page)
+        self.assertIn("project: P, units: hxOpts.units", page)
+        self.assertIn("let line = proj.line;", page)
+        self.assertIn("return P(xv, yv);", page)              # frequency lines
+        self.assertIn("psychro ? [width + pad, height + pad]", page)   # saturation clip
+        self.assertNotIn("d3.scaleLinear()", page)
+
+    def test_ip_captions_and_texts(self):
+        html = plot_mollier_hx(units="ip", pressure=96000, altitude=450)
+        self.assertEqual(_let(html, "hxOpts")["captions"], MOLLIER_DEFAULT_CAPTIONS_IP)
+        texts = _let(html, "T")
+        self.assertEqual(texts["state_value"], "{t_f} °F · {rh} %")
+        self.assertEqual(_let(html, "infoLines"), ["1476 ft", "28.35 inHg"])
+        opts = _chart_opts(plot_mollier_hx_fast(units="ip", pressure=96000, altitude=450))
+        self.assertEqual(opts["captions"], MOLLIER_DEFAULT_CAPTIONS_IP)
+        self.assertEqual(opts["lineOpts"]["xAxisTitle"], "humidity ratio W [gr/lb]")
+        self.assertEqual(opts["texts"]["altitude"], "1476 ft")
+        self.assertEqual(opts["texts"]["pressure"], "{inhg} inHg")   # filled in JS
+        self.assertEqual(opts["texts"]["state_value"], "{t_f} °F · {rh} %")
+        opts = _chart_opts(plot_mollier_hx_fast(units="ip"))
+        self.assertEqual(opts["texts"]["altitude"], "{alt_ft} ft")   # filled in JS
+
+    def test_no_si_units_in_ip_texts(self):
+        caps, texts = (MOLLIER_DEFAULT_CAPTIONS_IP, MOLLIER_DEFAULT_TEXTS_IP)
+        for v in list(caps.values()) + list(texts.values()):
+            for si in ("°C", "g/kg", "kJ/kg", "kg/m³", "hPa", "m a.s.l."):
+                self.assertNotIn(si, v)
+        page = _strip_bundle(plot_mollier_hx(units="ip", altitude=450))
+        for si in ('"{t} °C', "m a.s.l.", "hPa", "[°C]", "[g/kg]", "[kJ/kg]"):
+            self.assertNotIn(si, page)
+
+    def test_placeholders_keep_their_units(self):
+        html = plot_mollier_hx(units="ip", pressure=96000, altitude=450,
+                               texts={"altitude": "{alt} m / {alt_ft} ft",
+                                      "pressure": "{hpa} hPa = {inhg} inHg = {pa} Pa"})
+        self.assertEqual(_let(html, "infoLines"),
+                         ["450 m / 1476 ft", "960 hPa = 28.35 inHg = 96000 Pa"])
+        html = plot_mollier_hx(altitude=450, texts={"altitude": "{alt_ft} ft"})
+        self.assertEqual(_let(html, "infoLines")[0], "1476 ft")
+
+    def test_psychrometric_captions(self):
+        for units, x_axis in (("si", "Humidity ratio x [g/kg]"),
+                              ("ip", "Humidity ratio W [gr/lb]")):
+            for fn in BOTH:
+                caps = self._opts(fn, orientation="psychrometric", units=units)["captions"]
+                self.assertEqual(caps["x_axis"], x_axis)
+                self.assertEqual(caps["x_axis_title"], "")   # axis shows x_axis
+            opts = _chart_opts(plot_mollier_hx_fast(orientation="psychrometric", units=units))
+            self.assertEqual(opts["lineOpts"]["xAxisTitle"], "")
+
+    def test_user_texts_win_over_ip_defaults(self):
+        for fn in BOTH:
+            opts = self._opts(fn, units="ip", orientation="psychrometric",
+                              x_axis_title="Feuchte W [gr/lb]",
+                              captions={"temperature": "Trockentemperatur [°F]"})
+            self.assertEqual(opts["captions"]["x_axis_title"], "Feuchte W [gr/lb]")
+            self.assertEqual(opts["captions"]["temperature"], "Trockentemperatur [°F]")
+            self.assertEqual(opts["captions"]["density"], "Density [lb/ft³]")
+        html = plot_mollier_hx(units="ip", texts={"state_value": "{t} °C"})
+        self.assertEqual(_let(html, "T")["state_value"], "{t} °C")
+
+    def test_ip_tooltips(self):
+        page = _strip_bundle(plot_mollier_hx(data=_data(), units="ip"))
+        self.assertIn('U.cToF(c).toFixed(1) + " °F"', page)
+        self.assertIn('U.kgkgToGrlb(kgkg).toFixed(1) + " gr/lb"', page)
+        self.assertIn('U.kjkgToBtulb(kjkg).toFixed(1) + " Btu/lb"', page)
 
 
 class TestPressureFromAltitude(unittest.TestCase):
