@@ -259,11 +259,13 @@ _D3_URL = "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"
 
 
 def _load_d3_js():
-    """Load the bundled d3-mollierhx sources used by :func:`plot_mollier_hx`."""
+    """Load the bundled d3-mollierhx sources used by :func:`plot_mollier_hx`
+    (load order: mollierFunctions, hxUnits, coordinateGenerator, drawComfort)."""
     from importlib import resources as _res
     d3_dir = _res.files("pyedautils") / "data" / "d3_mollierhx"
     return {
         "mollier_functions": (d3_dir / "mollierFunctions.js").read_text(encoding="utf-8"),
+        "hx_units": (d3_dir / "hxUnits.js").read_text(encoding="utf-8"),
         "coordinate_generator": (d3_dir / "coordinateGenerator.js").read_text(encoding="utf-8"),
         "draw_comfort": (d3_dir / "drawComfort.js").read_text(encoding="utf-8"),
     }
@@ -1167,6 +1169,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 <script>
 (function() {{
 {js["mollier_functions"]}
+{js["hx_units"]}
 {js["coordinate_generator"]}
 {js["draw_comfort"]}
   let convention = "{convention}";
@@ -2613,7 +2616,7 @@ def _load_d3_chart_js():
     d = _res.files("pyedautils") / "data" / "d3_mollierhx"
     return "\n".join(
         (d / f).read_text(encoding="utf-8")
-        for f in ("mollierFunctions.js", "coordinateGenerator.js",
+        for f in ("mollierFunctions.js", "hxUnits.js", "coordinateGenerator.js",
                   "drawComfort.js", "mollierChart.js")
     )
 

@@ -21,8 +21,8 @@ from pyedautils.plots import (
 from pyedautils.plots._constants import _SEASON_LABELS_DE
 
 D3_DIR = resources.files("pyedautils") / "data" / "d3_mollierhx"
-JS_FILES = ("mollierFunctions.js", "coordinateGenerator.js", "drawComfort.js",
-            "mollierChart.js")
+JS_FILES = ("mollierFunctions.js", "hxUnits.js", "coordinateGenerator.js",
+            "drawComfort.js", "mollierChart.js")
 BOTH = (plot_mollier_hx, plot_mollier_hx_fast)
 
 
@@ -81,7 +81,7 @@ class TestBundleAndD3v7(unittest.TestCase):
 
     def test_bundled_sources_are_inlined_unchanged(self):
         hx = plot_mollier_hx()
-        for name in JS_FILES[:3]:
+        for name in JS_FILES[:4]:
             self.assertIn(_js_source(name), hx)
         fast = plot_mollier_hx_fast()
         for name in JS_FILES:
