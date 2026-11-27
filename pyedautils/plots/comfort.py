@@ -283,10 +283,14 @@ def _get_season_fast(dt):
     return "Fall"
 
 
-#: Captions of the h,x-diagram grid (English defaults) for the ``captions``
-#: argument of :func:`plot_mollier_hx` / :func:`plot_mollier_hx_fast`. Copy
-#: and translate as needed; ``""`` hides a caption. ``x_axis_title`` defaults
-#: to the ``x_axis_title`` argument.
+#: Captions of the h,x-diagram grid (English defaults, ``units='si'``) for
+#: the ``captions`` argument of :func:`plot_mollier_hx` /
+#: :func:`plot_mollier_hx_fast`. Copy and translate as needed; ``""`` hides a
+#: caption. ``x_axis_title`` defaults to the ``x_axis_title`` argument. In the
+#: ``'psychrometric'`` orientation the humidity-ratio axis (right) shows
+#: ``x_axis_title`` if set, else ``x_axis``, which defaults to
+#: ``"Humidity ratio x [g/kg]"`` there (``x_axis_title`` to ``""``). IP units:
+#: :data:`MOLLIER_DEFAULT_CAPTIONS_IP`.
 MOLLIER_DEFAULT_CAPTIONS: Dict[str, str] = {
     "temperature": "Temperature ϑ [°C]",     # left axis, rotated
     "rel_humidity": "rel. humidity φ [%]",   # right edge, top
@@ -296,11 +300,36 @@ MOLLIER_DEFAULT_CAPTIONS: Dict[str, str] = {
     "x_axis_title": "absolute water content x [g/kg]",  # below the x axis
 }
 
+#: The captions of :data:`MOLLIER_DEFAULT_CAPTIONS` for ``units='ip'``
+#: (ASHRAE names, °F, gr/lb, lb/ft³, Btu/lb; d3-mollierhx
+#: ``HX_DEFAULT_CAPTIONS_IP``). In the ``'psychrometric'`` orientation
+#: ``x_axis`` defaults to ``"Humidity ratio W [gr/lb]"`` (``x_axis_title`` to
+#: ``""``).
+MOLLIER_DEFAULT_CAPTIONS_IP: Dict[str, str] = {
+    "temperature": "Dry-bulb temperature [°F]",
+    "rel_humidity": "Relative humidity [%]",
+    "density": "Density [lb/ft³]",
+    "enthalpy": "Enthalpy [Btu/lb]",
+    "x_axis": "W [gr/lb]",
+    "x_axis_title": "humidity ratio W [gr/lb]",
+}
+
+#: ``x_axis`` caption in the ``'psychrometric'`` orientation (along the
+#: humidity-ratio axis on the right, room for a longer text), per units.
+_PSYCHRO_X_AXIS = {"si": "Humidity ratio x [g/kg]",
+                   "ip": "Humidity ratio W [gr/lb]"}
+
+_ORIENTATIONS = ("mollier", "psychrometric")
+_UNIT_SYSTEMS = ("si", "ip")
+
 #: All other visible texts of :func:`plot_mollier_hx` /
 #: :func:`plot_mollier_hx_fast` (English defaults) for their ``texts``
-#: argument. Placeholders in braces are filled in: ``{t}`` °C, ``{rh}`` %,
-#: ``{x}`` g/kg, ``{n}`` count, ``{alt}`` m, ``{hpa}`` hPa. ``""`` hides the
-#: altitude / pressure line and the ventilation note.
+#: argument. Placeholders in braces are filled in: ``{t}`` °C, ``{t_f}`` °F,
+#: ``{rh}`` %, ``{x}`` g/kg, ``{x_gr}`` gr/lb, ``{n}`` count, ``{alt}`` m,
+#: ``{alt_ft}`` ft, ``{hpa}`` hPa, ``{inhg}`` inHg, ``{pa}`` Pa (each
+#: placeholder keeps its unit with ``units='ip'`` too). ``""`` hides the
+#: altitude / pressure line and the ventilation note. IP units:
+#: :data:`MOLLIER_DEFAULT_TEXTS_IP`.
 MOLLIER_DEFAULT_TEXTS: Dict[str, str] = {
     # outside air and ventilation (d3-mollierhx HX_DEFAULT_TEXTS)
     "outdoor": "Outside air",
@@ -323,6 +352,16 @@ MOLLIER_DEFAULT_TEXTS: Dict[str, str] = {
     "season_spring": "Spring",
     "season_summer": "Summer",
     "season_fall": "Fall",
+}
+
+#: :data:`MOLLIER_DEFAULT_TEXTS` for ``units='ip'``: the same keys, with the
+#: edge-arrow label in °F and altitude / pressure in ft / inHg (d3-mollierhx
+#: ``HX_DEFAULT_TEXTS_IP``, ``MOLLIER_CHART_DEFAULT_TEXTS_IP``).
+MOLLIER_DEFAULT_TEXTS_IP: Dict[str, str] = {
+    **MOLLIER_DEFAULT_TEXTS,
+    "state_value": "{t_f} °F · {rh} %",
+    "altitude": "{alt_ft} ft",
+    "pressure": "{inhg} inHg",
 }
 
 _SEASON_KEYS = ("Winter", "Spring", "Summer", "Fall")
@@ -351,20 +390,49 @@ def _merge_texts(defaults, user, name):
     return out
 
 
+def _check_layout(orientation, units):
+    """Validate ``orientation`` / ``units`` of the h,x plots (case-insensitive);
+    returns them lower-case."""
+    o = orientation.lower() if isinstance(orientation, str) else orientation
+    if o not in _ORIENTATIONS:
+        raise ValueError(f"orientation must be one of {_ORIENTATIONS}, "
+                         f"got {orientation!r}")
+    u = units.lower() if isinstance(units, str) else units
+    if u not in _UNIT_SYSTEMS:
+        raise ValueError(f"units must be one of {_UNIT_SYSTEMS}, got {units!r}")
+    return o, u
+
+
+def _default_captions(units="si", orientation="mollier"):
+    """Default captions for a unit system and orientation (as
+    ``hxDefaultCaptions`` in d3-mollierhx, plus the pyedautils
+    ``x_axis_title``). The psychrometric humidity-ratio axis has one caption
+    (``x_axis_title`` if set, else ``x_axis``): ``x_axis_title`` defaults to
+    ``""`` there, so the ASHRAE term of ``x_axis`` is shown."""
+    caps = dict(MOLLIER_DEFAULT_CAPTIONS_IP if units == "ip"
+                else MOLLIER_DEFAULT_CAPTIONS)
+    if orientation == "psychrometric":
+        caps["x_axis"] = _PSYCHRO_X_AXIS[units]
+        caps["x_axis_title"] = ""
+    return caps
+
+
 def _mollier_texts(captions, texts, x_axis_title, comfort_label,
-                   season_labels):
+                   season_labels, units="si", orientation="mollier"):
     """Resolve the ``captions`` / ``texts`` arguments of the h,x plots.
 
-    The older arguments map onto the same keys (``x_axis_title`` →
-    ``captions["x_axis_title"]``, ``comfort_label`` → ``texts["comfort_zone"]``,
-    ``season_labels`` → ``texts["season_*"]``); a key given in ``captions`` /
-    ``texts`` takes precedence. Returns ``(captions, texts)``, both complete.
+    The defaults follow ``units`` / ``orientation``. The older arguments map
+    onto the same keys (``x_axis_title`` → ``captions["x_axis_title"]``,
+    ``comfort_label`` → ``texts["comfort_zone"]``, ``season_labels`` →
+    ``texts["season_*"]``); a key given in ``captions`` / ``texts`` takes
+    precedence. Returns ``(captions, texts)``, both complete.
     """
-    caps = dict(MOLLIER_DEFAULT_CAPTIONS)
+    caps = _default_captions(units, orientation)
     if x_axis_title is not None:
         caps["x_axis_title"] = str(x_axis_title)
     caps = _merge_texts(caps, captions, "captions")
-    base = dict(MOLLIER_DEFAULT_TEXTS)
+    base = dict(MOLLIER_DEFAULT_TEXTS_IP if units == "ip"
+                else MOLLIER_DEFAULT_TEXTS)
     if comfort_label is not None:
         base["comfort_zone"] = str(comfort_label)
     for k in _SEASON_KEYS:
@@ -393,14 +461,29 @@ def _altitude_pressure_labels(pressure, altitude, texts=None):
     """Top-right annotation strings ``(altitude, pressure)`` from the
     ``altitude`` / ``pressure`` templates of ``texts``.
 
-    Pressure is shown in hPa. Altitude defaults to the value derived from the
+    Placeholders: ``{alt}`` m, ``{alt_ft}`` ft, ``{hpa}`` hPa, ``{inhg}``
+    inHg, ``{pa}`` Pa. Altitude defaults to the value derived from the
     pressure via the inverse ISA barometric formula when not supplied.
     """
     texts = texts or MOLLIER_DEFAULT_TEXTS
     if altitude is None:
         altitude = (1 - (pressure / 101325.0) ** (1 / 5.25588)) / 2.25577e-5
-    return (_fill(texts["altitude"], alt=f"{altitude:.0f}"),
-            _fill(texts["pressure"], hpa=f"{pressure / 100.0:.0f}"))
+    values = _altitude_pressure_values(pressure, altitude)
+    return (_fill(texts["altitude"], **values),
+            _fill(texts["pressure"], **values))
+
+
+def _altitude_pressure_values(pressure=None, altitude=None):
+    """Placeholder values of the altitude / pressure texts (as in
+    d3-mollierhx ``MollierChart``); a ``None`` argument is left out."""
+    from pyedautils.units import m_to_ft, pa_to_inhg
+    out = {}
+    if altitude is not None:
+        out.update(alt=f"{altitude:.0f}", alt_ft=f"{m_to_ft(altitude):.0f}")
+    if pressure is not None:
+        out.update(hpa=f"{pressure / 100.0:.0f}",
+                   inhg=f"{pa_to_inhg(pressure):.2f}", pa=f"{pressure:.0f}")
+    return out
 
 
 def _js(obj):
@@ -554,8 +637,9 @@ def _band_js(band):
 # Inline JS for the cumulative-frequency contour lines ("risk hours/days"), ported
 # from the d3-mollierhx demo. Kept as a plain string (not an f-string) so the JS
 # braces stay literal; the handful of injected values use __TOKEN__ placeholders
-# substituted in plot_mollier_hx. It reuses the page's `mollier`, `x`, `y`, `plot`,
-# `svg`, `width`, `height`, `domainY`, `p` and the `dataRecords` array.
+# substituted in plot_mollier_hx. It reuses the page's `mollier`, `P` (projection),
+# `psychro`, `plot`, `svg`, `width`, `height`, `domainY`, `p` and the `dataRecords`
+# array.
 _FREQ_JS_TEMPLATE = r"""
   // ----- Cumulative-frequency contour lines -------------------------------
   let dataXY = dataRecords || [];
@@ -691,12 +775,15 @@ _FREQ_JS_TEMPLATE = r"""
     return levels;
   }
 
+  // Clip path = the unsaturated region: upper left of the saturation curve
+  // ('mollier'), lower right ('psychrometric').
   function updateSaturationClip() {
     let sat = [];
     let t0 = domainY[0] - 3, t1 = domainY[1] + 3, ns = 120;
-    for (let i = 0; i <= ns; i++) { let t = t0 + (t1 - t0) * i / ns; let s = mollier.get_x_y(t, 1, p); sat.push([x(s.x), y(s.y)]); }
+    for (let i = 0; i <= ns; i++) { let t = t0 + (t1 - t0) * i / ns; let s = mollier.get_x_y(t, 1, p); sat.push(P(s.x, s.y)); }
     let pad = Math.max(width, height) + 200;
-    let pts = [[-pad, height + pad]].concat(sat).concat([[width + pad, -pad], [-pad, -pad]]);
+    let dryWarm = psychro ? [width + pad, height + pad] : [-pad, -pad];
+    let pts = [[-pad, height + pad]].concat(sat).concat([[width + pad, -pad], dryWarm]);
     let cp = svg.select("#__SATCLIP_ID__");
     if (cp.empty()) cp = svg.append("clipPath").attr("id", "__SATCLIP_ID__");
     cp.selectAll("polygon").remove();
@@ -719,7 +806,7 @@ _FREQ_JS_TEMPLATE = r"""
     function gridToScreen(gx, gy) {
       let xv = FREQ_XMIN + gx * FREQ_DX, Tv = FREQ_TMIN + gy * FREQ_DT;
       let yv = mollier.get_x_y_tx(Tv, xv, p).y;
-      return [x(xv), y(yv)];
+      return P(xv, yv);
     }
     let smoothLine = d3.line().curve(d3.curveBasisClosed);
     function contourPath(mp) {
@@ -786,7 +873,7 @@ def plot_mollier_hx(
     show_rel_humidity: bool = True,
     show_enthalpy: bool = True,
     show_abs_humidity: bool = True,
-    x_axis_title: str = 'absolute water content x [g/kg]',
+    x_axis_title: Optional[str] = None,
     season_labels: Optional[Dict[str, str]] = None,
     show_frequency: bool = False,
     frequency_unit: str = 'hours',
@@ -799,6 +886,8 @@ def plot_mollier_hx(
     ventilation_threshold: float = 0.0003,
     captions: Optional[Dict[str, str]] = None,
     texts: Optional[Dict[str, str]] = None,
+    orientation: str = 'mollier',
+    units: str = 'si',
 ) -> str:
     """
     Create a Mollier h,x-diagram (psychrometric chart) as self-contained HTML.
@@ -817,7 +906,15 @@ def plot_mollier_hx(
     Every visible text can be replaced through ``captions`` (axis captions)
     and ``texts`` (everything else); the defaults are English. See
     :data:`MOLLIER_DEFAULT_CAPTIONS` and :data:`MOLLIER_DEFAULT_TEXTS` for
-    the keys.
+    the keys (:data:`MOLLIER_DEFAULT_CAPTIONS_IP` /
+    :data:`MOLLIER_DEFAULT_TEXTS_IP` with ``units='ip'``).
+
+    ``orientation='psychrometric'`` draws the same diagram transposed as the
+    ASHRAE psychrometric chart (dry-bulb temperature horizontal, humidity
+    ratio vertical with its scale on the right, saturation curve top left);
+    ``units='ip'`` labels it in °F, gr/lb, Btu/lb and lb/ft³. Both are
+    independent; all inputs (``data``, ``domain_x``, ``domain_y``,
+    ``comfort_zone``, ``pressure``, ``altitude``, ...) stay SI.
 
     Args:
         data: Optional DataFrame with columns [timestamp, humidity, temperature].
@@ -914,10 +1011,15 @@ def plot_mollier_hx(
             ``True``. Set ``False`` to hide everything enthalpy-related.
         show_abs_humidity: Draw the vertical iso-lines of constant absolute
             humidity (at the bottom-axis tick values). Default ``True``.
-        x_axis_title: Caption centred below the bottom axis. Default
-            ``"absolute water content x [g/kg]"``. Pass ``""`` to omit it.
-            Same as ``captions["x_axis_title"]`` (which wins if both are
-            given).
+        x_axis_title: Title of the humidity axis (centred below it; rotated
+            on the right in the psychrometric orientation, instead of
+            ``captions["x_axis"]``). Default ``None``:
+            ``"absolute water content x [g/kg]"``, with ``units='ip'``
+            ``"humidity ratio W [gr/lb]"``; none in the psychrometric
+            orientation, where the axis shows ``captions["x_axis"]``
+            (``"Humidity ratio x [g/kg]"`` / ``"Humidity ratio W [gr/lb]"``).
+            Pass ``""`` to omit it. Same as ``captions["x_axis_title"]``
+            (which wins if both are given).
         season_labels: Optional mapping from the English season keys
             ``"Winter"``, ``"Spring"``, ``"Summer"``, ``"Fall"`` to the labels
             shown in the seasonal scatter tooltips and legend. Defaults to the
@@ -976,6 +1078,22 @@ def plot_mollier_hx(
                        "ventilation_neutral": "Lüften: keine Änderung",
                        "altitude": "{alt} m ü. M.", "latest": "Letzter Wert"}
 
+        orientation: ``'mollier'`` (default; humidity horizontal,
+            temperature vertical, the classical h,x diagram) or
+            ``'psychrometric'`` (ASHRAE layout: dry-bulb temperature
+            horizontal, humidity ratio vertical with its scale on the right;
+            the legend moves to the empty top-left corner). Only the drawing
+            changes; ``domain_x`` stays the humidity range [kg/kg] and
+            ``domain_y`` the temperature range [°C].
+        units: ``'si'`` (default; °C, g/kg, kJ/kg, kg/m³, m, hPa) or ``'ip'``
+            (US customary: °F, gr/lb, Btu/lb, lb/ft³, ft, inHg) for ticks,
+            captions, tooltips, the edge-arrow label and the altitude /
+            pressure line. The defaults of ``captions`` / ``texts`` switch to
+            :data:`MOLLIER_DEFAULT_CAPTIONS_IP` /
+            :data:`MOLLIER_DEFAULT_TEXTS_IP`. The arguments stay SI. IP
+            enthalpy uses the ASHRAE reference (0 Btu/lb for dry air at
+            0 °F).
+
     Returns:
         str: Self-contained HTML string with inline D3.js rendering.
             Can be saved to a file, used with ``streamlit.components.v1.html()``,
@@ -996,10 +1114,11 @@ def plot_mollier_hx(
     )
 
     convention = _check_convention(convention)
+    orientation, units = _check_layout(orientation, units)
     pressure = _resolve_pressure(pressure, altitude)
     js = _load_d3_js()
     caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
-                               season_labels)
+                               season_labels, units, orientation)
     outdoor_pt = _point_arg(outdoor, "outdoor")
     current_pt = _point_arg(current, "current")
 
@@ -1127,6 +1246,8 @@ def plot_mollier_hx(
         "showEnthalpy": bool(show_enthalpy),
         "showAbsHumidity": bool(show_abs_humidity),
         "captions": caps,
+        "orientation": orientation,
+        "units": units,
     })
 
     import uuid
@@ -1242,9 +1363,18 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       .text(t);
   }});
 
-  let x = d3.scaleLinear().range([0, width]).domain(domainX);
-  let y = d3.scaleLinear().range([height, 0]).domain(domainY);
-  let ctx = {{x: x, y: y, width: width, height: height, mollier: mollier, pressure: p}};
+  // Screen projection (hxProjection): 'mollier' x -> px, y -> py;
+  // 'psychrometric' transposed. All data stay SI.
+  let proj = hxProjection(width, height, domainX, domainY, hxOpts.orientation);
+  let psychro = proj.orientation === "psychrometric";
+  let x = proj.xScale, y = proj.yScale, P = proj.project;
+  let ctx = {{x: x, y: y, width: width, height: height, mollier: mollier, pressure: p,
+             project: P, units: hxOpts.units}};
+  // Tooltip values: SI as formatted by the caller, IP converted.
+  let U = HX_UNITS, ip = hxIsIP(hxOpts.units);
+  function fmtT(c, si) {{ return ip ? U.cToF(c).toFixed(1) + " °F" : si + " °C"; }}
+  function fmtX(kgkg, si) {{ return ip ? U.kgkgToGrlb(kgkg).toFixed(1) + " gr/lb" : si + " g/kg"; }}
+  function fmtH(kjkg, si) {{ return ip ? U.kjkgToBtulb(kjkg).toFixed(1) + " Btu/lb" : si + " kJ/kg"; }}
   let tooltip = d3.select("#{tooltip_id}");
   function showTip(event, html, bgColor, fgColor) {{
     tooltip.style("opacity", 1).style("background-color", bgColor)
@@ -1259,7 +1389,7 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     }});
   }}
 
-  let line = d3.line().x(d => x(d.x)).y(d => y(d.y));
+  let line = proj.line;
   let pathos = hasComfort ? createComfort(rangeT, rangePhi, rangeX, p, mollier) : null;
   if (hasComfort && pathos && pathos.length > 0) {{
     plot.append("path").attr("class", "hx-comfort").datum(pathos).attr("d", line)
@@ -1287,13 +1417,13 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
 
     plot.append("g").attr("class", "hx-scatter")
       .selectAll("circle").data(dataRecords).enter().append("circle")
-      .attr("cx", d => x(d.x)).attr("cy", d => y(d.y))
+      .attr("cx", d => P(d.x, d.y)[0]).attr("cy", d => P(d.x, d.y)[1])
       .attr("r", 5).attr("fill", d => colorMap[d.season] || "#999")
       .attr("opacity", 0.4).attr("shape-rendering", "optimizeSpeed")
       .on("mouseover", function(event, d) {{
         d3.select(this).attr("r", 10).attr("opacity", 0.9);
-        showTip(event, esc(d.ts) + "<br>" + esc(T.tip_x) + ": " + d.xg + " g/kg<br>"
-            + esc(T.tip_t) + ": " + d.temp + " °C<br>" + esc(T.tip_phi) + ": " + d.phi + " %",
+        showTip(event, esc(d.ts) + "<br>" + esc(T.tip_x) + ": " + fmtX(d.x, d.xg) + "<br>"
+            + esc(T.tip_t) + ": " + fmtT(d.temp, d.temp) + "<br>" + esc(T.tip_phi) + ": " + d.phi + " %",
           colorMap[d.season] || "#999",
           (darkLabels.indexOf(d.season) >= 0) ? "white" : "black");
       }})
@@ -1312,22 +1442,22 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
       let a = statePoints[i - 1];
       let b = statePoints[i];
       chain.append("line")
-        .attr("x1", x(a.x)).attr("y1", y(a.y))
-        .attr("x2", x(b.x)).attr("y2", y(b.y))
+        .attr("x1", P(a.x, a.y)[0]).attr("y1", P(a.x, a.y)[1])
+        .attr("x2", P(b.x, b.y)[0]).attr("y2", P(b.x, b.y)[1])
         .attr("stroke", "#444").attr("stroke-width", 2)
         .attr("marker-end", "url(#arrow-{uid})");
     }}
 
     let nodes = chain.selectAll("g.state").data(statePoints).enter()
       .append("g").attr("class", "state")
-      .attr("transform", d => "translate(" + x(d.x) + "," + y(d.y) + ")")
+      .attr("transform", d => "translate(" + P(d.x, d.y)[0] + "," + P(d.x, d.y)[1] + ")")
       .style("cursor", "pointer")
       .on("mouseover", function(event, d) {{
         showTip(event, esc(d.label)
-            + "<br>" + esc(T.tip_t) + ": " + d.t + " °C"
+            + "<br>" + esc(T.tip_t) + ": " + fmtT(d.t, d.t)
             + "<br>" + esc(T.tip_phi) + ": " + d.phi + " %"
-            + "<br>" + esc(T.tip_x) + ": " + d.xg + " g/kg"
-            + "<br>" + esc(T.tip_h) + ": " + d.h + " kJ/kg", "#222", "white");
+            + "<br>" + esc(T.tip_x) + ": " + fmtX(d.x, d.xg)
+            + "<br>" + esc(T.tip_h) + ": " + fmtH(d.h, d.h), "#222", "white");
       }})
       .on("mouseout", hideTip);
 
@@ -1347,10 +1477,11 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
   function stateLines(s) {{
     let td = mollier.temperature_p_sat(s.phi * mollier.p_sat(s.t));
-    return [esc(T.tip_x) + ": " + (s.x * 1000).toFixed(2) + " g/kg",
-            esc(T.tip_t) + ": " + s.t.toFixed(1) + " °C",
+    return [esc(T.tip_x) + ": " + fmtX(s.x, (s.x * 1000).toFixed(2)),
+            esc(T.tip_t) + ": " + fmtT(s.t, s.t.toFixed(1)),
             esc(T.tip_phi) + ": " + (s.phi * 100).toFixed(0) + " %",
-            esc(T.tip_td) + ": " + (td == null || !isFinite(td) ? "–" : td.toFixed(1)) + " °C"];
+            esc(T.tip_td) + ": " + (td == null || !isFinite(td)
+              ? "–" + (ip ? " °F" : " °C") : fmtT(td, td.toFixed(1)))];
   }}
   let roomState = roomPoint ? hxState(roomPoint.state, mollier, p) : null;
   if (outdoorPoint) {{
@@ -1473,9 +1604,14 @@ box-shadow:2px 2px 6px rgba(0,0,0,0.2);opacity:0;"></div>
     frame.attr("x", -6).attr("y", -6)
       .attr("width", legendW + 12).attr("height", legendH + 6);
     // Anchor bottom-right of the plot area, clear of the enthalpy-axis
-    // labels (plot-local x = width-20, y = height-20).
+    // labels (plot-local x = width-20, y = height-20); psychrometric: top
+    // left, the empty corner above the saturation curve.
     let lx = Math.max(margin.left + 8, margin.left + width - scale * legendW - (compact ? 40 : 50));
     let ly = margin.top + height - scale * legendH - (compact ? 26 : 35);
+    if (psychro) {{
+      lx = margin.left + (compact ? 12 : 16);
+      ly = margin.top + (compact ? 12 : 16);
+    }}
     legendG.attr("transform", "translate(" + lx + "," + ly + ")"
       + (scale !== 1 ? " scale(" + scale + ")" : ""));
   }}
@@ -2642,7 +2778,7 @@ def plot_mollier_hx_fast(
     show_rel_humidity: bool = True,
     show_enthalpy: bool = True,
     show_abs_humidity: bool = True,
-    x_axis_title: str = 'absolute water content x [g/kg]',
+    x_axis_title: Optional[str] = None,
     season_labels: Optional[Dict[str, str]] = None,
     show_frequency: bool = False,
     frequency_unit: str = 'hours',
@@ -2658,6 +2794,8 @@ def plot_mollier_hx_fast(
     ventilation_threshold: float = 0.0003,
     captions: Optional[Dict[str, str]] = None,
     texts: Optional[Dict[str, str]] = None,
+    orientation: str = 'mollier',
+    units: str = 'si',
 ) -> str:
     """Stateful, fast variant of :func:`plot_mollier_hx`.
 
@@ -2672,8 +2810,10 @@ def plot_mollier_hx_fast(
     Same inputs as :func:`plot_mollier_hx` (including ``altitude`` setting
     the pressure when ``pressure`` is not given, offset warning bands,
     ``"abs_humidity": None`` for no abs-humidity limit, ``outdoor`` /
-    ``current`` with the ventilation line and note, and ``captions`` /
-    ``texts``), plus:
+    ``current`` with the ventilation line and note, ``captions`` /
+    ``texts``, and ``orientation`` (``'mollier'`` | ``'psychrometric'``) /
+    ``units`` (``'si'`` | ``'ip'``), passed to the chart; switch them later
+    with ``setOrientation()`` / ``setUnits()``), plus:
 
     Args:
         show_points: Draw the measurement points. ``False`` keeps only the
@@ -2703,10 +2843,11 @@ def plot_mollier_hx_fast(
 
     from pyedautils._mollier import _check_convention
     convention = _check_convention(convention)
+    orientation, units = _check_layout(orientation, units)
     pressure = _resolve_pressure(pressure, altitude)
     cid = "mollier_" + uuid.uuid4().hex[:8]
     caps, txt = _mollier_texts(captions, texts, x_axis_title, comfort_label,
-                               season_labels)
+                               season_labels, units, orientation)
     outdoor_pt = _point_arg(outdoor, "outdoor")
     current_pt = _point_arg(current, "current")
     freq_unit = str(frequency_unit).lower()
@@ -2764,11 +2905,13 @@ def plot_mollier_hx_fast(
 
     chart_texts = dict(txt)
     if altitude is not None:   # MollierChart derives it from the pressure
-        chart_texts["altitude"] = _fill(txt["altitude"], alt=f"{altitude:.0f}")
+        chart_texts["altitude"] = _fill(
+            txt["altitude"], **_altitude_pressure_values(altitude=altitude))
 
     opts = {
         "height": int(height), "convention": convention, "pressure": float(pressure),
         "domainX": list(domain_x), "domainY": list(domain_y),
+        "orientation": orientation, "units": units,
         "lineOpts": {
             "showTemperature": bool(show_temperature), "showDensity": bool(show_density),
             "showRelHumidity": bool(show_rel_humidity), "showEnthalpy": bool(show_enthalpy),
