@@ -2,7 +2,8 @@
 
 The [Mollier h,x diagram](https://en.wikipedia.org/wiki/Psychrometrics#Mollier_diagram)
 is the map engineers use for moist air. In English-speaking countries the same
-physics is usually drawn as the psychrometric chart, rotated and mirrored.
+physics is usually drawn as the psychrometric chart, rotated and mirrored
+(pyedautils draws that too, see {ref}`hx-psychrometric-chart`).
 pyedautils draws it with {func}`~pyedautils.plots.comfort.plot_mollier_hx` (and the
 lighter {func}`~pyedautils.plots.comfort.plot_mollier_hx_fast`); the numbers behind it
 come from the {doc}`psychrometric functions <../api/psychrometrics>` in
@@ -109,6 +110,50 @@ print(f"x = {s.x * 1000:.1f} g/kg, dew point = {s.t_dp:.1f} °C")
 - **Single points are not the whole story.** Short peaks (showering, cooking)
   show up as single points to the right; what matters for mould is how long
   the surfaces stay humid, so look at where most of the points are.
+
+(hx-psychrometric-chart)=
+### The psychrometric chart (ASHRAE) and IP units
+
+The psychrometric chart used in the US and in ASHRAE publications is the same
+diagram with its axes swapped: **dry-bulb temperature** runs left to right,
+the **humidity ratio** *W* (the absolute humidity *x*) bottom to top with its
+scale on the right, and the saturation curve bounds the chart top left.
+Enthalpy is read on the diagonal scale beyond the saturation curve. Everything
+on this page applies unchanged, except that more water moves a point up
+instead of to the right. `plot_mollier_hx` moves its legend to the empty
+top-left corner.
+
+Two independent arguments of `plot_mollier_hx` and `plot_mollier_hx_fast`
+switch the layout and the units:
+
+- `orientation="psychrometric"` (default `"mollier"`) for the ASHRAE layout;
+- `units="ip"` (default `"si"`) for US customary units: °F, grains of water
+  per pound of dry air (gr/lb, 7 gr/lb = 1 g/kg), Btu/lb, lb/ft³, altitude in
+  ft and pressure in inHg, in ticks, captions and tooltips.
+
+```python
+import pandas as pd
+from importlib import resources
+from pyedautils.plots import plot_mollier_hx
+
+csv = resources.files("pyedautils") / "data" / "mollier_sample.csv"
+df = pd.read_csv(csv)          # timestamp, humidity [%], temperature [°C]
+
+html = plot_mollier_hx(df, altitude=450, outdoor=(4, 85),
+                       orientation="psychrometric", units="ip")
+```
+
+All arguments stay SI (`data` in °C and %, `domain_x` in kg/kg, `domain_y`
+in °C, `comfort_zone`, `pressure`, `altitude`, `outdoor`), so the same call
+works in both unit systems. The IP enthalpy follows the ASHRAE reference
+(0 Btu/lb for dry air at 0 °F, 0 kJ/kg for dry air at 0 °C), so 41 kJ/kg reads
+25.3 Btu/lb, not 41 / 2.326 = 17.6; for enthalpy *differences* use
+{func}`pyedautils.units.kjkg_to_btulb`. With `units="ip"` the default texts
+are `MOLLIER_DEFAULT_CAPTIONS_IP` and `MOLLIER_DEFAULT_TEXTS_IP` (in
+`pyedautils.plots`); translations via
+`captions=` / `texts=` work as before, with the extra placeholders
+`{t_f}` (°F), `{x_gr}` (gr/lb), `{alt_ft}` (ft), `{inhg}` (inHg) and `{pa}`
+(Pa).
 
 (hx-dew-point)=
 ## Dew point: where condensation and mould start
